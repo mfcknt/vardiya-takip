@@ -15,14 +15,21 @@ def round_cents(value: Fraction) -> int:
     return (2 * value.numerator + value.denominator) // (2 * value.denominator)
 
 
-def midnight(day: date, zone) -> int:
-    return int(datetime.combine(day, time.min, zone).timestamp())
+def midnight(day: date, zone, hour: int = 0) -> int:
+    """Start of business day `day`: local `hour`:00 (0 = calendar midnight)."""
+    return int(datetime.combine(day, time(hour=hour), zone).timestamp())
 
 
-def split_days(start: int, end: int, zone):
+def business_day(timestamp: int, zone, hour: int = 0) -> date:
+    """Business day a moment belongs to; before `hour`:00 counts as the previous day."""
+    return (datetime.fromtimestamp(timestamp, zone) - timedelta(hours=hour)).date()
+
+
+def split_days(start: int, end: int, zone, hour: int = 0):
+    """Split [start, end) at business-day boundaries (local `hour`:00)."""
     while start < end:
-        day = datetime.fromtimestamp(start, zone).date()
-        stop = min(end, midnight(day + timedelta(days=1), zone))
+        day = business_day(start, zone, hour)
+        stop = min(end, midnight(day + timedelta(days=1), zone, hour))
         yield day.isoformat(), stop - start
         start = stop
 
@@ -31,8 +38,8 @@ def build_report(service, token, first: date, last: date):
     service.require_admin(token)
     if last < first or (last - first).days > 365:
         raise AppError("Rapor aralığı 1–366 gün olmalı.")
-    zone, now = service.zone, service.clock.wall()
-    begin, stop = midnight(first, zone), midnight(last + timedelta(days=1), zone)
+    zone, now, hour = service.zone, service.clock.wall(), service.day_start_hour
+    begin, stop = midnight(first, zone, hour), midnight(last + timedelta(days=1), zone, hour)
     # One consistent DB snapshot for detail, payments and totals.
     with service.db.transaction():
         employees = [dict(r) for r in service.db.conn.execute("SELECT * FROM employees ORDER BY name,id")]
@@ -49,7 +56,7 @@ def build_report(service, token, first: date, last: date):
     for s in sessions:
         end = min(s["end_at"] if s["end_at"] is not None else now, stop, now)
         prefix = "open_" if s["end_at"] is None else ""
-        for day, seconds in split_days(s["start_at"], max(s["start_at"], end), zone):
+        for day, seconds in split_days(s["start_at"], max(s["start_at"], end), zone, hour):
             bucket = daily[(s["employee_id"], day)]
             bucket[prefix + "seconds"] += seconds
             bucket[prefix + "amount"] += Fraction(seconds * s["rate_cents"], 3600)
@@ -62,6 +69,10 @@ def build_report(service, token, first: date, last: date):
     day_rows = []
     lifetime = defaultdict(int)
     period = defaultdict(lambda: {"seconds": 0, "open_seconds": 0, "cents": 0, "open_cents": 0})
+    reviews = defaultdict(int)
+    for d in details:
+        if d.get("review"):
+            reviews[d["employee_id"]] += 1
     for (eid, day), bucket in sorted(daily.items()):
         cents, open_cents = round_cents(bucket["amount"]), round_cents(bucket["open_amount"])
         lifetime[eid] += cents
@@ -91,9 +102,10 @@ def build_report(service, token, first: date, last: date):
                         "period_net_cents": period[eid]["cents"] - period_paid[eid],
                         "carry_cents": lifetime[eid] - total_paid[eid]
                                        - period[eid]["cents"] + period_paid[eid],
-                        "balance_cents": lifetime[eid] - total_paid[eid]})
+                        "balance_cents": lifetime[eid] - total_paid[eid],
+                        "review_count": reviews[eid]})
     return {"first": first.isoformat(), "last": last.isoformat(), "as_of": now,
-            "timezone": str(zone), "clock_alert": clock_alert, "clock_notice": clock_notice,
+            "timezone": str(zone), "day_start_hour": hour, "clock_alert": clock_alert, "clock_notice": clock_notice,
             "review_count": sum(1 for d in details if d.get("review")),
             "summary": summary,
             "days": day_rows, "sessions": details, "payments": payment_rows}
@@ -188,7 +200,9 @@ def export_report(service, token, report, destination: Path):
                   [["Belge", "Ön hak ediş; resmî bordro değildir."],
                    ["Dönem", report["first"] + " — " + report["last"]],
                    ["Üretim", service.display_time(report["as_of"])],
-                   ["Saat dilimi", report["timezone"]], ["Saat uyarısı", report["clock_alert"]],
+                   ["Saat dilimi", report["timezone"]],
+                   ["İş günü", f"Her gün {report.get('day_start_hour', 0):02d}:00’da başlar; "
+                               "bu saatten önceki çalışma önceki güne yazılır."], ["Saat uyarısı", report["clock_alert"]],
                    ["Saat bildirimi", report.get("clock_notice", "")],
                    ["İnceleme bekleyen kayıt", report.get("review_count", 0)],
                    ["Kural", "Saniye üzerinden hesaplanır; personel/gün başına kuruşa yuvarlanır."],

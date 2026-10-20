@@ -139,3 +139,47 @@ def test_admin_shows_turkish_money_actions_and_filters(qapp, system):
     panel.refresh()
     assert panel.session_filter.employee.findData(new) > 0
     panel.reject()
+
+
+def test_forgotten_exit_card_pin_warning_and_report(qapp, system):
+    import uuid
+    from conftest import ts
+    s, c, _, eid = system
+    c.advance(ts("2026-10-20T17:00") - c.now)
+    sid = s.attendance(eid, PIN, "start", None, str(uuid.uuid4()))
+    window = MainWindow(s)
+    window.show()
+    window.refresh()
+    assert "Çalışıyor" in window.grid.itemAt(0).widget().text()
+    c.advance(ts("2026-10-21T05:10") - c.now)
+    window.heartbeat()
+    card = window.grid.itemAt(0).widget()
+    assert "Çıkış yapılmamış" in card.text() and card.objectName() == "personForgotten"
+    assert "Çıkışı yapılmamış 1 kayıt" in window.warning.text()
+    dialog = PinDialog(s, s.kiosk_employees()[0], window)
+    assert dialog.forgotten
+    assert any("önceki iş gününden" in w.text() for w in dialog.findChildren(type(window.status)))
+    dialog.pin.setText(PIN)
+    dialog.confirm()
+    assert dialog.result() == QDialog.DialogCode.Accepted
+    token = s.login_admin("Restoran!Guvenli2026")
+    panel = AdminDialog(s, token)
+    # Business "today" at 05:10 is 21 Oct; the 20 Oct shift shows in the 30-day filter.
+    assert panel.last.date().toPython().isoformat() == "2026-10-21"
+    assert any(panel.session_table.item(r, 0).text() == str(sid) and panel.session_table.item(r, 6).text()
+               for r in range(panel.session_table.rowCount()))
+    assert "05:00" in panel.day_note.text()
+    panel.reject()
+    window.close()
+
+
+def test_report_today_uses_business_day(qapp, system):
+    from conftest import ts
+    s, c, token, _ = system
+    c.advance(ts("2026-10-21T00:30") - c.now)
+    token = s.login_admin("Restoran!Guvenli2026")
+    panel = AdminDialog(s, token)
+    panel.today()
+    assert panel.first.date().toPython().isoformat() == "2026-10-20"
+    assert panel.report_table.columnCount() == 8
+    panel.reject()

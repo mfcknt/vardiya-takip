@@ -50,13 +50,23 @@ Her işe giriş, o an geçerli saatlik ücreti **kaydın tamamı için sabitler*
 Yeni ücret sonraki girişten itibaren geçerlidir. Saat düzeltmeleri ücreti değiştirmez.
 Yanlış ücretli bir geçmiş kayıt için gerekçeyle iptal edip doğru ücretle yeni kayıt ekleyin.
 
-Gece yarısını aşan çalışma gün ve ay sınırında bölünür. Örnek: saatlik 150 TL ile
-31 Ekim 23.30–1 Kasım 00.30 çalışması, Ekim’e 75 TL ve Kasım’a 75 TL yazar.
+**İş günü** varsayılan olarak her gün 05.00’te başlar (gece yarısından sonra kapanan işletmeler için).
+05.00’ten önceki çalışma ve ödemeler önceki iş gününe yazılır. Örnekler (saatlik 150 TL):
+17.00–01.00 akşam vardiyası tek güne 8 saat / 1.200 TL yazar; gece 00.30–01.00 yarım saati
+o gecenin iş gününe 75 TL yazar; 31 Ekim 23.30–1 Kasım 00.30 çalışmasının tamamı (150 TL) Ekim’e girer.
+Sınırı aşan bir kayıt (ör. 04.00–06.00) sınırda iki güne bölünür. Yönetici → Güvenlik / yedek →
+**İş günü başlangıcını değiştir** ile 00.00–12.00 arasında bir saat seçilebilir; 00.00 takvim gününe döner.
+Değişiklik geçmiş raporların gün/ay dağılımını yeniden hesaplar, toplam tutarı değiştirmez.
 Süre dakika veya saate yuvarlanmaz. Kesirli hesap yapılır; her personel/gün için
 kapalı hak ediş toplamı en son kuruşa, yarım kuruş yukarı olacak şekilde yuvarlanır.
 Aylık toplam günlük tutarların toplamıdır.
 
 Açık kayıt tutarı yalnızca geçici tahmindir; hak ediş bakiyesine dahil edilmez.
+**Unutulan çıkış:** İş günü sınırını (05.00) geçip hâlâ açık olan kayıt “çıkış yapılmamış” olarak
+incelemeye işaretlenir; personel kartı turuncuya döner ve ana ekranda uyarı çıkar. Personel ertesi gün
+kartına basarsa PIN ekranı bunu söyler; kaydı kapatabilir ve hemen yeni giriş yapabilir. Kapanan kayıt
+işaretli kalır; yönetici gerçek çıkış saatini **Seçileni düzelt** ile girene kadar raporlarda
+“İnceleme” sütununda görünür. Uygulama çıkış saatini kendiliğinden uydurmaz.
 24 saati aşan açık kaydı personel kapatamaz; yönetici kontrol edip düzeltir.
 Yönetici eliyle oluşturulan/düzeltilen tek kayıt en fazla 7 gün olabilir.
 

@@ -10,7 +10,7 @@ Ortamlar:
 
 ## Otomatik testler
 
-**Windows’ta 95 test geçti.** Arayüz testleri Qt `offscreen` platformuyla yürütülür.
+**Windows’ta tüm testler geçti** (sayı her CI çalıştırmasında annotation olarak raporlanır). Arayüz testleri Qt `offscreen` platformuyla yürütülür.
 CI, başarısız testleri GitHub annotation olarak yayınlar (`scripts/ci_annotate.py`).
 Testlerin tamamı geçici klasörlerde veri oluşturur; gerçek uygulama verilerine erişmez.
 
@@ -51,6 +51,8 @@ python -m pytest -q
 | Filtreler | Kayıt/ödeme tarih ve personel filtresi, son 1000 işlem, yeni personel filtre listesine eklenir |
 | TL biçimi | 1.500,50 / 1500.50 / 1.500 girişleri; 1.440,00 gösterimi; hatalı tutar reddi |
 | Konsol kodlaması | Bakım aracı cp1252 yönlendirilmiş çıktıda Türkçe metinle çökmez |
+| İş günü | 05:00 sınırı: gece 00:30 yarım saati önceki güne, 17–01 vardiyası tek güne; ay sonu; ayar ve denetim |
+| Unutulan çıkış | Sınırda tek sefer işaretleme, turuncu kart, PIN uyarısı, kapatıp yeniden giriş, yönetici düzeltmesi |
 | Windows kilidi | İkinci uygulama örneği kilit dosyasını okurken çökmeden “başka uygulamada açık” der |
 
 Süreç çökmesi testleri gerçek donanım elektrik kesintisinin veya disk kontrolcüsü arızasının

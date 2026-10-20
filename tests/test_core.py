@@ -114,6 +114,14 @@ def test_midnight_month_split_and_rate_snapshot(system):
     s.update_employee(admin(s), eid, "Ayşe Yılmaz", 20000, True, "Yeni ücret belirlendi")
     c.advance(3600)
     s.attendance(eid, PIN, "end", sid, uid())
+    # Default business day starts 05:00: the whole night shift belongs to October.
+    october = build_report(s, admin(s), date(2026, 10, 1), date(2026, 10, 31))
+    november = build_report(s, admin(s), date(2026, 11, 1), date(2026, 11, 30))
+    assert october["summary"][0]["cents"] == 15000
+    assert november["summary"][0]["cents"] == 0
+    assert november["summary"][0]["carry_cents"] == 15000
+    # With a calendar-midnight boundary the same shift splits 75/75 TL.
+    s.set_day_start(admin(s), 0, "Takvim günü kullanılacak")
     october = build_report(s, admin(s), date(2026, 10, 1), date(2026, 10, 31))
     november = build_report(s, admin(s), date(2026, 11, 1), date(2026, 11, 30))
     assert october["summary"][0]["cents"] == 7500

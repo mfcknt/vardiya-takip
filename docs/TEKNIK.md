@@ -57,6 +57,14 @@ kapanan her kayıt `sessions.review` alanına uyarı metnini alır. Yönetici d�
 Uzun ara bildirimi (`meta.clock_notice`) yalnızca bilgidir. Onay iki durumu da temizler,
 mevcut kayıt saatlerini ve inceleme işaretlerini değiştirmez.
 
+## İş günü
+
+`meta.day_start_hour` (varsayılan 5) iş gününün yerel başlangıç saatidir. Rapor gün/ay sınırları,
+“Bugün/Bu ay” düğmeleri ve tablo filtreleri bu sınırı kullanır (`reports.business_day`, `Service.day_bounds`).
+Her `tick()` (15 sn ve her personel işlemi) açık kayıtları tarar; iş günü sınırını geçmiş ve işaretsiz olanlara
+`review` notu yazar, revision’ı artırır ve `SESSION_FLAG` audit kaydı ekler (eski düzeltme ekranı üzerine yazamaz).
+Ayar değişikliği `SETTING_CHANGE` olarak denetlenir.
+
 ## Veri modeli
 
 `employees`: aktif/arşiv, güncel ücret. `credentials`: personel ve yönetici özetleri, kilitler.

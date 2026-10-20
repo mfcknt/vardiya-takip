@@ -41,6 +41,8 @@ QPushButton#primary { color: white; background: #176b52; border: none; }
 QPushButton#primary:hover { background: #12553f; }
 QPushButton#danger { color: #8f362a; background: #f9e8e1; }
 QPushButton#person { text-align: left; font-size: 20px; padding: 20px; min-height: 94px; }
+QPushButton#personForgotten { text-align: left; font-size: 20px; padding: 20px;
+                        min-height: 94px; background: #fde3c4; border-color: #c46a1b; color: #6b3409; }
 QPushButton#personOpen { text-align: left; font-size: 20px; padding: 20px;
                         min-height: 94px; background: #dceee2; border-color: #68a180; }
 QLineEdit, QComboBox, QDateEdit, QDateTimeEdit { background: white; border: 1px solid #cbd8d1;
@@ -106,7 +108,7 @@ ACTION_NAMES = {
     "EMPLOYEE_UPDATE": "Personel düzenlendi", "START": "İşe başladı", "END": "İşi bitirdi",
     "SESSION_MANUAL": "Kayıt eklendi", "SESSION_CORRECT": "Kayıt düzeltildi",
     "SESSION_VOID": "Kayıt iptal", "PAYMENT_ADD": "Ödeme eklendi", "PAYMENT_VOID": "Ödeme iptal",
-    "RESTORE": "Yedekten kurtarma",
+    "RESTORE": "Yedekten kurtarma", "SESSION_FLAG": "Çıkış yapılmamış", "SETTING_CHANGE": "Ayar değişti",
 }
 AUDIT_SCREEN_LIMIT = 1000
 
@@ -219,7 +221,13 @@ class PinDialog(QDialog):
         box = QVBoxLayout(self)
         box.addWidget(label(employee["name"], "title"))
         box.addWidget(label(f"Personel no: {employee['id']} · 6 haneli PIN’inizi girin", "subtitle"))
-        if employee["session_id"]:
+        self.forgotten = bool(employee["session_id"]) and service.past_day_boundary(employee["start_at"])
+        if self.forgotten:
+            box.addWidget(label("Giriş: " + service.display_time(employee["start_at"]) +
+                                "\nBu kayıt önceki iş gününden açık kalmış; çıkış yapılmamış. "
+                                "Şimdi kapatabilirsin, kayıt yöneticiye işaretlenir ve gerçek çıkış "
+                                "saatini yönetici girer. Ardından yeni giriş yapabilirsin.", "warning"))
+        elif employee["session_id"]:
             box.addWidget(label("Giriş: " + service.display_time(employee["start_at"]), "success"))
         self.pin = secret_edit(6)
         self.pin.setValidator(QRegularExpressionValidator(QRegularExpression("[0-9]{0,6}")))
@@ -438,7 +446,7 @@ class FilterBar(QWidget):
         self.service = service
         row = QHBoxLayout(self)
         row.setContentsMargins(0, 0, 0, 0)
-        today = datetime.fromtimestamp(service.clock.wall(), service.zone).date()
+        today = service.business_day(service.clock.wall())
         start = today - timedelta(days=29)
         self.first = QDateEdit(QDate(start.year, start.month, start.day))
         self.last = QDateEdit(QDate(today.year, today.month, today.day))
@@ -478,9 +486,7 @@ class FilterBar(QWidget):
         first, last = self.first.date().toPython(), self.last.date().toPython()
         if last < first:
             raise AppError("Bitiş tarihi başlangıçtan önce olamaz.")
-        zone = self.service.zone
-        since = int(datetime.combine(first, datetime.min.time(), zone).timestamp())
-        until = int(datetime.combine(last + timedelta(days=1), datetime.min.time(), zone).timestamp())
+        since, until = self.service.day_bounds(first, last)
         return {"eid": self.employee.currentData(), "since": since, "until": until}
 
     def review_only(self):
@@ -572,7 +578,7 @@ class AdminDialog(QDialog):
     def reports_tab(self):
         box = self.tab("Hak ediş")
         dates = QHBoxLayout()
-        today = datetime.fromtimestamp(self.service.clock.wall(), self.service.zone).date()
+        today = self.service.business_day(self.service.clock.wall())
         self.first = QDateEdit(QDate(today.year, today.month, 1))
         self.last = QDateEdit(QDate(today.year, today.month, today.day))
         for w in (self.first, self.last):
@@ -587,7 +593,7 @@ class AdminDialog(QDialog):
         self.report_note = label("Açık kayıtlar geçici tahmindir ve bakiyeye eklenmez.", "warning")
         box.addWidget(self.report_note)
         self.report_table = make_table(["Personel", "Kapalı süre", "Ön hak ediş TL", "Açık tahmini TL",
-                                       "Ödeme/avans TL", "Devreden TL", "Bakiye TL"])
+                                       "Ödeme/avans TL", "Devreden TL", "Bakiye TL", "İnceleme"])
         box.addWidget(self.report_table)
         self.toolbar(box, [("CSV indir", lambda: self.export(".csv")),
                            ("Excel indir", lambda: self.export(".xlsx"))])
@@ -606,6 +612,9 @@ class AdminDialog(QDialog):
         self.clock_note = label("", "warning")
         box.addWidget(self.clock_note)
         self.toolbar(box, [("Saati kontrol ettim", self.ack_clock), ("Şifre değiştir", self.change_password)])
+        self.day_note = label("", "subtitle")
+        box.addWidget(self.day_note)
+        self.toolbar(box, [("İş günü başlangıcını değiştir", self.change_day_start)])
         self.toolbar(box, [("Bütünlüğü denetle", self.check_integrity), ("Yedek al", self.backup),
                            ("Yedekten kurtar", self.restore)])
         box.addWidget(label("Veri klasörü: " + str(self.service.db.path.parent), "subtitle"))
@@ -650,6 +659,9 @@ class AdminDialog(QDialog):
                                 "tamamı için “Geçmişi CSV indir”.")
         alert, notice = self.service.clock_status()
         self.clock_note.setText("\n".join(x for x in (alert, notice) if x) or "Saat şüphesi bulunmuyor.")
+        self.day_note.setText(f"İş günü her gün {self.service.day_start_hour:02d}:00’da başlar. "
+                              "Bu saatten önceki çalışma ve ödemeler önceki güne yazılır; "
+                              "bu saati geçen açık kayıtlar “çıkış yapılmamış” olarak işaretlenir.")
         count, size = backup_usage(self.service.db)
         self.backup_note.setText(f"Otomatik yedekler: {count} dosya, {size / 1_048_576:.1f} MB. "
                                  "Son 30 gün, her ayın ilk yedeği ve son 20 kapanış yedeği saklanır; "
@@ -705,14 +717,14 @@ class AdminDialog(QDialog):
             self.refresh()
 
     def today(self):
-        day = datetime.fromtimestamp(self.service.clock.wall(), self.service.zone).date()
+        day = self.service.business_day(self.service.clock.wall())
         q = QDate(day.year, day.month, day.day)
         self.first.setDate(q)
         self.last.setDate(q)
         self.calculate()
 
     def this_month(self):
-        day = datetime.fromtimestamp(self.service.clock.wall(), self.service.zone).date()
+        day = self.service.business_day(self.service.clock.wall())
         self.first.setDate(QDate(day.year, day.month, 1))
         self.last.setDate(QDate(day.year, day.month, day.day))
         self.calculate()
@@ -723,7 +735,8 @@ class AdminDialog(QDialog):
                                    self.last.date().toPython())
         fill_table(self.report_table, [[r["name"], duration(r["seconds"]), tl(r["cents"]),
                                        tl(r["open_cents"]), tl(r["paid_cents"]),
-                                       tl(r["carry_cents"]), tl(r["balance_cents"])]
+                                       tl(r["carry_cents"]), tl(r["balance_cents"]),
+                                       f"{r['review_count']} kayıt" if r["review_count"] else ""]
                                       for r in self.report["summary"]])
         first = date.fromisoformat(self.report["first"]).strftime("%d.%m.%Y")
         last = date.fromisoformat(self.report["last"]).strftime("%d.%m.%Y")
@@ -802,6 +815,28 @@ class AdminDialog(QDialog):
             QApplication.instance().quit()
 
     @guarded
+    def change_day_start(self):
+        dlg = FormDialog("İş günü başlangıcı", self)
+        hours = QComboBox()
+        for h in range(0, 13):
+            hours.addItem(f"{h:02d}:00", h)
+        hours.setCurrentIndex(self.service.day_start_hour)
+        reason = QLineEdit()
+        reason.setMaxLength(500)
+        dlg.form.addRow("Başlangıç saati", hours)
+        dlg.form.addRow("Gerekçe", reason)
+        dlg.form.addRow(label("İşletmenin kapalı olduğu bir saat seçin. Değişiklik geçmiş raporların "
+                              "gün dağılımını da yeniden hesaplar; toplam tutar değişmez.", "subtitle"))
+
+        @guarded
+        def save(_dialog):
+            self.service.set_day_start(self.token, hours.currentData(), reason.text())
+            dlg.accept()
+        dlg.buttons.accepted.connect(lambda: save(dlg))
+        if dlg.exec():
+            self.refresh()
+
+    @guarded
     def change_password(self):
         dlg = FormDialog("Yönetici şifresini değiştir", self)
         old, new, repeat = secret_edit(), secret_edit(), secret_edit()
@@ -849,7 +884,7 @@ class MainWindow(QMainWindow):
         self.service = service
         self.restoring = False
         self.verified_backups = set()
-        self.showing_locks = False
+        self.card_signature = None
         self.setWindowTitle("Vardiya Takip")
         self.resize(1120, 780)
         self.setMinimumSize(760, 580)
@@ -906,15 +941,12 @@ class MainWindow(QMainWindow):
                 item.widget().deleteLater()
         query = self.search.text().casefold()
         people = [e for e in getattr(self, "people", []) if query in e["name"].casefold()]
+        self.card_signature = self.cards_state()
         for i, employee in enumerate(people):
-            opened = employee["session_id"] is not None
-            state = "Çalışıyor  →  İşi bitir" if opened else "Hazır  →  İşe başla"
-            locked = lock_text(self.service, employee.get("locked_until"))
-            if locked:
-                state = locked + "  ·  " + state
+            state, style = self.card_state(employee)
             text = employee["name"] + f"  ·  {employee['id']}\n" + state
             b = button(text, lambda checked=False, e=employee: self.attendance(e))
-            b.setObjectName("personOpen" if opened else "person")
+            b.setObjectName(style)
             b.setAccessibleName(text.replace("\n", ". "))
             b.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
             b.ensurePolished()
@@ -929,6 +961,21 @@ class MainWindow(QMainWindow):
                                       "subtitle"), 0, 0)
         self.grid.setColumnStretch(0, 1)
         self.grid.setColumnStretch(1, 1)
+
+    def card_state(self, employee):
+        """(second line of the card, style name) for one kiosk card."""
+        opened = employee["session_id"] is not None
+        if opened and self.service.past_day_boundary(employee["start_at"]):
+            state, style = "Çıkış yapılmamış  →  İşi bitir", "personForgotten"
+        elif opened:
+            state, style = "Çalışıyor  →  İşi bitir", "personOpen"
+        else:
+            state, style = "Hazır  →  İşe başla", "person"
+        locked = lock_text(self.service, employee.get("locked_until"))
+        return (locked + "  ·  " + state if locked else state), style
+
+    def cards_state(self):
+        return tuple((e["id"], *self.card_state(e)) for e in getattr(self, "people", []))
 
     @guarded
     def heartbeat(self):
@@ -946,16 +993,19 @@ class MainWindow(QMainWindow):
             lines.append(alert + " Giriş/çıkışlar yönetici incelemesi için işaretleniyor.")
         elif notice:
             lines.append("Yönetici: " + notice)
+        forgotten = sum(1 for e in getattr(self, "people", [])
+                        if e["session_id"] and self.service.past_day_boundary(e["start_at"]))
+        if forgotten:
+            lines.append(f"Çıkışı yapılmamış {forgotten} kayıt var. Yönetici gerçek çıkış saatini girmeli.")
         if long_open:
             lines.append("24 saati aşan açık kayıt var. Yönetici kontrol etmeli.")
         message = "\n".join(lines)
         self.warning.setText(message)
         self.warning.setVisible(bool(message))
-        locked = any(lock_text(self.service, e.get("locked_until")) for e in getattr(self, "people", []))
-        if locked or self.showing_locks:
-            # Reload so countdowns update and an admin unlock shows immediately.
-            self.people = self.service.kiosk_employees()
-            self.showing_locks = any(lock_text(self.service, e.get("locked_until")) for e in self.people)
+        # Reload cheaply; re-render only when a card would look different
+        # (lock countdown, admin unlock, crossing the business-day boundary).
+        self.people = self.service.kiosk_employees()
+        if self.cards_state() != self.card_signature:
             self.render_people()
         try:
             automatic_backup(self.service.db, self.service.zone, self.verified_backups)
@@ -966,9 +1016,12 @@ class MainWindow(QMainWindow):
 
     @guarded
     def attendance(self, employee):
-        if PinDialog(self.service, employee, self).exec():
+        dialog = PinDialog(self.service, employee, self)
+        if dialog.exec():
             text = "Çıkış kaydedildi." if employee["session_id"] else "Giriş kaydedildi."
-            if self.service.clock_status()[0]:
+            if dialog.forgotten:
+                text += " Gerçek çıkış saatini yönetici girecek."
+            elif self.service.clock_status()[0]:
                 text += " Kayıt yönetici incelemesine işaretlendi."
             self.status.setText(text)
         self.refresh()

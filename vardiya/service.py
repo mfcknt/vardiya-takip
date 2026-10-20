@@ -5,6 +5,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from .security import AppError, hash_secret, validate_password, validate_pin, verify_secret
+from .reports import business_day, midnight
 from .storage import Database, canonical
 
 
@@ -26,6 +27,9 @@ LOCK_AFTER = 5            # failed attempts before a lock
 ADMIN_LOCK_SECONDS = 300
 STAFF_LOCK_STEPS = (30, 60, 120, 240, 300)   # escalating staff PIN locks
 LONG_GAP_SECONDS = 36 * 3600
+DEFAULT_DAY_START_HOUR = 5    # restaurants closing after midnight: 00:00–04:59 is "yesterday"
+MAX_DAY_START_HOUR = 12
+FORGOTTEN_EXIT = "Çıkış yapılmamış: iş günü sınırı geçti. Gerçek çıkış saatini girin."
 
 
 def staff_lock_seconds(failures):
@@ -67,6 +71,48 @@ class Service:
     def zone(self):
         return ZoneInfo(self.db.meta("timezone", "Europe/Istanbul"))
 
+    @property
+    def day_start_hour(self):
+        """Local hour at which a business day begins (0 = calendar midnight)."""
+        return int(self.db.meta("day_start_hour", DEFAULT_DAY_START_HOUR))
+
+    def business_day(self, timestamp):
+        return business_day(timestamp, self.zone, self.day_start_hour)
+
+    def day_bounds(self, first, last):
+        """[start, stop) timestamps covering business days first..last."""
+        from datetime import timedelta
+        hour = self.day_start_hour
+        return midnight(first, self.zone, hour), midnight(last + timedelta(days=1), self.zone, hour)
+
+    def past_day_boundary(self, start_at, now=None):
+        """True when an open record has crossed into a later business day."""
+        now = self.clock.wall() if now is None else now
+        return self.business_day(now) > self.business_day(start_at)
+
+    def set_day_start(self, token, hour, reason):
+        self.require_admin(token)
+        reason = reason_text(reason)
+        if type(hour) is not int or not 0 <= hour <= MAX_DAY_START_HOUR:
+            raise AppError(f"İş günü başlangıcı 00:00–{MAX_DAY_START_HOUR:02d}:00 arasında olmalı.")
+        with self.db.transaction():
+            before = self.day_start_hour
+            self.db.set_meta("day_start_hour", hour)
+            self.db.audit(self.clock.wall(), "admin", "SETTING_CHANGE", "day_start_hour",
+                          before={"day_start_hour": before}, after={"day_start_hour": hour}, reason=reason)
+
+    def _flag_forgotten(self, now):
+        """Inside a transaction: flag open records left past the business-day boundary."""
+        for row in self.db.conn.execute(
+                "SELECT * FROM sessions WHERE end_at IS NULL AND voided=0 AND review=''").fetchall():
+            if not self.past_day_boundary(row["start_at"], now):
+                continue
+            self.db.conn.execute("UPDATE sessions SET review=?,revision=revision+1 WHERE id=?",
+                                 (FORGOTTEN_EXIT, row["id"]))
+            after = dict(self.db.conn.execute("SELECT * FROM sessions WHERE id=?", (row["id"],)).fetchone())
+            self.db.audit(now, "system", "SESSION_FLAG", f"session:{row['id']}",
+                          before=dict(row), after=after, reason=FORGOTTEN_EXIT)
+
     def setup(self, password, timezone="Europe/Istanbul"):
         validate_password(password)
         ZoneInfo(timezone)
@@ -77,6 +123,7 @@ class Service:
             self.db.conn.execute("INSERT INTO credentials(subject,secret) VALUES('admin',?)",
                                  (encoded,))
             self.db.set_meta("timezone", timezone)
+            self.db.set_meta("day_start_hour", DEFAULT_DAY_START_HOUR)
             self.db.set_meta("last_wall", self.clock.wall())
             self.db.audit(self.clock.wall(), "admin", "SETUP", "system", after={"timezone": timezone})
 
@@ -108,6 +155,7 @@ class Service:
                 self.db.audit(now, "system", "CLOCK_NOTICE", "clock",
                               after={"last": last, "current": now}, reason=notice)
             self.db.set_meta("last_wall", max(now, last))
+            self._flag_forgotten(max(now, last))
             alert = self.db.meta("clock_alert", "")
         self._sample = (now, mono)
         return alert
