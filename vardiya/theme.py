@@ -127,6 +127,11 @@ QLabel#warning {{ background: {t['warn_soft']}; color: {t['warn_text']}; padding
 QLabel#success {{ background: {t['inside_soft']}; color: {t['inside']}; padding: 12px 16px;
                   border-radius: 14px; }}
 QLabel#status {{ color: {t['muted']}; font-size: 14px; }}
+QLabel#note {{ background: {t['surface2']}; color: {t['muted']}; padding: 12px 16px; border-radius: 14px; }}
+QLabel#tileValue {{ font-family: "Jost"; font-weight: 300; font-size: 34px; }}
+QLabel#tileValueWarn {{ font-family: "Jost"; font-weight: 300; font-size: 34px; color: {t['warn_text']}; }}
+QLabel#welcomeTitle {{ font-family: "Jost"; font-weight: 200; font-size: 42px; }}
+QLabel#welcomeSub {{ color: {t['muted']}; font-size: 17px; }}
 QPushButton {{ min-height: 44px; padding: 4px 18px; border-radius: 22px; background: transparent;
                border: 1px solid {t['line']}; color: {t['text']}; font-weight: 500; }}
 QPushButton:hover {{ border-color: {t['muted']}; }}
@@ -148,8 +153,10 @@ QLineEdit, QComboBox, QDateEdit, QDateTimeEdit {{ background: {t['input']}; colo
     selection-background-color: {t['selection']}; selection-color: {t['text']}; }}
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QDateTimeEdit:focus {{ border-color: {t['muted']}; }}
 QLineEdit#search {{ border-radius: 20px; padding-left: 16px; background: {t['surface']}; }}
-QLineEdit#pin {{ font-family: "Jost"; font-size: 34px; letter-spacing: 12px; border: none;
-                 background: transparent; min-height: 52px; }}
+QLineEdit#pin {{ font-family: "Quicksand"; font-size: 34px; letter-spacing: 10px; border: none;
+                 background: transparent; min-height: 52px; lineedit-password-character: 8226; }}
+QComboBox::drop-down, QDateEdit::drop-down, QDateTimeEdit::drop-down {{ border: none; width: 28px;
+    background: transparent; }}
 QComboBox QAbstractItemView {{ background: {t['surface']}; color: {t['text']};
                                selection-background-color: {t['selection']}; border: 1px solid {t['line']}; }}
 QCalendarWidget QWidget {{ background: {t['surface']}; color: {t['text']}; }}
@@ -157,8 +164,7 @@ QCheckBox {{ min-height: 36px; color: {t['text']}; background: transparent; spac
 QCheckBox::indicator {{ width: 22px; height: 22px; border-radius: 7px; border: 1px solid {t['line']};
                         background: {t['input']}; }}
 QCheckBox::indicator:checked {{ background: {t['primary']}; border-color: {t['primary']}; }}
-QListWidget#nav {{ background: {t['surface']}; border: none; border-right: 1px solid {t['line_soft']};
-                   padding: 8px; outline: 0; }}
+QListWidget#nav {{ background: transparent; border: none; padding: 0; outline: 0; }}
 QListWidget#nav::item {{ padding: 12px 14px; margin: 2px 0; border-radius: 12px; color: {t['muted']}; }}
 QListWidget#nav::item:selected {{ background: {t['selection']}; color: {t['text']}; }}
 QListWidget#nav::item:hover {{ color: {t['text']}; }}

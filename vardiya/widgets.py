@@ -51,15 +51,17 @@ def logo_pixmap(color_hex, height, ratio=1.0):
     if image.isNull():
         return QPixmap()
     target_h = max(1, int(height * ratio))
-    image = image.scaledToHeight(target_h, Qt.TransformationMode.SmoothTransformation)
-    out = QPixmap(image.size())
+    image = image.convertToFormat(QImage.Format.Format_ARGB32_Premultiplied).scaledToHeight(
+        target_h, Qt.TransformationMode.SmoothTransformation)
+    out = QImage(image.size(), QImage.Format.Format_ARGB32_Premultiplied)
     out.fill(QColor(color_hex))
     painter = QPainter(out)
     painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
     painter.drawImage(0, 0, image)
     painter.end()
-    out.setDevicePixelRatio(ratio)
-    return out
+    pixmap = QPixmap.fromImage(out)
+    pixmap.setDevicePixelRatio(ratio)
+    return pixmap
 
 
 def app_icon():
@@ -76,7 +78,9 @@ def paint_ring(p, cx, cy, r, state, progress, letters, t=None, hover=False):
     forgotten (dashed honey ring, tilted accent), locked (rose ring).
     """
     t = t or current()
+    p.save()
     p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    p.setBrush(Qt.BrushStyle.NoBrush)
     box = QRectF(cx - r, cy - r, 2 * r, 2 * r)
     s = r / 42.0
     if hover:
@@ -123,8 +127,8 @@ def paint_ring(p, cx, cy, r, state, progress, letters, t=None, hover=False):
         p.setPen(pen("ring_idle", 1.5))
         p.drawEllipse(box)
     p.setPen(QColor(t[text_key]))
-    p.setFont(font("Jost", 24 * s, QFont.Weight.Light))
-    p.drawText(box, Qt.AlignmentFlag.AlignCenter, letters)
+    p.setFont(font("Jost", max(24 * s, r * 0.95), QFont.Weight.Light if r > 20 else QFont.Weight.Normal))
+    p.drawText(box.adjusted(-r, 0, r, 0), Qt.AlignmentFlag.AlignCenter, letters)
     if state == "locked":
         # small padlock under the letters
         w, h = 10 * s, 8 * s
@@ -132,6 +136,7 @@ def paint_ring(p, cx, cy, r, state, progress, letters, t=None, hover=False):
         p.setPen(pen("lock", 1.4))
         p.drawRoundedRect(QRectF(x, y, w, h), 2 * s, 2 * s)
         p.drawArc(QRectF(x + 2 * s, y - 5 * s, w - 4 * s, 9 * s), 0, 180 * 16)
+    p.restore()
 
 
 class PersonRing(QAbstractButton):
@@ -241,7 +246,7 @@ class StatTile(QFrame):
         self.caption = QLabel(caption)
         self.caption.setObjectName("subtitle")
         self.value = QLabel("—")
-        self.value.setFont(font("Jost", 30, QFont.Weight.Light))
+        self.value.setObjectName("tileValue")
         box.addWidget(self.caption)
         box.addWidget(self.value)
 
@@ -252,7 +257,9 @@ class StatTile(QFrame):
             self.setObjectName(name)
             self.style().unpolish(self)
             self.style().polish(self)
-        self.value.setStyleSheet(f"color: {current()['warn_text']};" if warn else "")
+        self.value.setObjectName("tileValueWarn" if warn else "tileValue")
+        self.value.style().unpolish(self.value)
+        self.value.style().polish(self.value)
 
 
 class TimelineWidget(QWidget):
@@ -401,10 +408,9 @@ class WelcomeDialog(QDialog):
         texts = QVBoxLayout()
         texts.addStretch()
         self.title = QLabel(title)
-        self.title.setFont(font("Jost", 40, QFont.Weight.ExtraLight))
+        self.title.setObjectName("welcomeTitle")
         self.subtitle = QLabel(subtitle)
-        self.subtitle.setObjectName("subtitle")
-        self.subtitle.setFont(font("Quicksand", 16))
+        self.subtitle.setObjectName("welcomeSub")
         self.note = QLabel(note)
         self.note.setObjectName("faint")
         for w in (self.title, self.subtitle, self.note):

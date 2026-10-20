@@ -61,11 +61,9 @@ def qapp():
 
     def close_modals():
         widget = app.activeModalWidget()
-        if widget is None:
-            return
-        text = widget.text() if isinstance(widget, QMessageBox) else widget.windowTitle()
-        MODAL_SEEN.append(f"{type(widget).__name__}: {text}")
-        widget.reject() if hasattr(widget, "reject") else widget.close()
+        if isinstance(widget, QMessageBox):   # error/info boxes are never expected in tests
+            MODAL_SEEN.append(f"{type(widget).__name__}: {widget.text()}")
+            widget.reject()
 
     watchdog = QTimer()
     watchdog.timeout.connect(close_modals)

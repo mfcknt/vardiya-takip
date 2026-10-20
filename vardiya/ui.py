@@ -60,11 +60,13 @@ def apply_theme(app, name=th.DEFAULT_THEME):
     app.setWindowIcon(app_icon())
     for widget in app.topLevelWidgets():
         try:
+            if not widget.isVisible():
+                continue  # hidden or closing windows re-theme when shown again
             if hasattr(widget, "retheme"):
                 widget.retheme()
             widget.update()
-        except RuntimeError:
-            pass  # a window that is being destroyed
+        except Exception:  # one broken window must not stop the others
+            logging.exception("Tema uygulanamadı: %s", type(widget).__name__)
 
 
 def apply_light_theme(app):
@@ -318,6 +320,7 @@ class PinDialog(QDialog):
             caption = th.tr_lower(text) if len(text) > 1 else text
             b = button(caption, lambda checked=False, t=text: self.press(t),
                        name="keyText" if len(text) > 1 else "key")
+            b.setFixedSize(76, 76)
             b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             grid.addWidget(b, i // 3, i % 3, Qt.AlignmentFlag.AlignCenter)
         box.addLayout(grid)
@@ -845,6 +848,9 @@ class AdminDialog(QDialog):
                                 "tamamı için “Geçmişi CSV indir”.")
         alert, notice = self.service.clock_status()
         self.clock_note.setText("\n".join(x for x in (alert, notice) if x) or "Saat şüphesi bulunmuyor.")
+        self.clock_note.setObjectName("warning" if alert or notice else "note")
+        self.clock_note.style().unpolish(self.clock_note)
+        self.clock_note.style().polish(self.clock_note)
         self.day_note.setText(f"İş günü her gün {self.service.day_start_hour:02d}:00’da başlar. "
                               "Bu saatten önceki çalışma ve ödemeler önceki güne yazılır; "
                               "bu saati geçen açık kayıtlar “çıkış yapılmamış” olarak işaretlenir.")
@@ -1201,6 +1207,7 @@ class MainWindow(QMainWindow):
         self.grid.setVerticalSpacing(14)
         self.grid.setContentsMargins(0, 8, 0, 8)
         self.scroll.setWidget(self.cards)
+        self.scroll.viewport().installEventFilter(self)
         QScroller.grabGesture(self.scroll.viewport(), QScroller.ScrollerGestureType.TouchGesture)
         box.addWidget(self.scroll, 1)
 
@@ -1221,12 +1228,18 @@ class MainWindow(QMainWindow):
 
     # --- appearance ----------------------------------------------------------
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        if current()["name"] != getattr(self, "_themed", None):
+            self.retheme()
+
     def retheme(self):
         apply = QApplication.instance()
         if apply is not None and current()["name"] != self.service.theme:
             apply_theme(apply, self.service.theme)
             return  # apply_theme calls retheme again
         t = current()
+        self._themed = t["name"]
         self.logo.setPixmap(logo_pixmap(t["text"], 92, self.devicePixelRatioF()))
         self.card_signature = None
         if hasattr(self, "people"):
@@ -1239,10 +1252,11 @@ class MainWindow(QMainWindow):
         self.clock_label.setText(f"{local:%H:%M}")
         self.greeting.setText(th.greeting(local, self.service.business_day(now)))
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.column_count() != self.columns and hasattr(self, "people"):
-            self.render_people()
+    def eventFilter(self, watched, event):
+        if (event.type() == QEvent.Type.Resize and watched is self.scroll.viewport()
+                and hasattr(self, "people") and self.column_count() != self.columns):
+            QTimer.singleShot(0, self.render_people)
+        return False
 
     def column_count(self):
         width = self.scroll.viewport().width() if hasattr(self, "scroll") else self.width()
