@@ -11,7 +11,27 @@ from .service import Service
 from .storage import Database, FileLock, default_data_dir, inspect_database
 
 
+def safe_console():
+    """Never crash on Turkish text when output is redirected (cp1252 etc.).
+
+    An interactive Windows console is written as Unicode by Python itself;
+    redirected/piped output is forced to UTF-8. The windowed build has no
+    streams at all (None) and is left alone.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None or not hasattr(stream, "reconfigure"):
+            continue
+        try:
+            if stream.isatty():
+                stream.reconfigure(errors="replace")
+            else:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
 def main():
+    safe_console()
     parser = argparse.ArgumentParser(description="Çevrimdışı Vardiya Takip")
     parser.add_argument("--data-dir", type=Path, default=default_data_dir(),
                         help="Yerel veri klasörü (ağ/senkronizasyon klasörü kullanmayın)")

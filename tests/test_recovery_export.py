@@ -1,4 +1,5 @@
 import csv
+import os
 import sqlite3
 import subprocess
 import sys
@@ -231,3 +232,13 @@ def test_unsupported_schema_is_not_silently_replaced(tmp_path):
     with pytest.raises(AppError):
         Database(path)
     assert path.read_bytes() == before
+
+
+def test_maintenance_output_survives_legacy_console_encoding(tmp_path):
+    """Redirected output on a cp1252 console must not crash on Turkish text."""
+    env = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+    child = subprocess.run([sys.executable, "-m", "vardiya", "--data-dir", str(tmp_path / "bos"), "--check"],
+                           capture_output=True, env=env)
+    assert child.returncode == 1, child.stderr
+    assert b"Traceback" not in child.stderr
+    assert "okunamadı" in child.stdout.decode("utf-8")
