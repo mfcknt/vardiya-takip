@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=75"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vardiya-takip"
+version = "0.1.0"
+description = "Çevrimdışı restoran ve kafe personel takibi"
+requires-python = ">=3.12"
+dependencies = ["PySide6==6.10.2", "openpyxl==3.1.5", "tzdata==2025.3"]
+
+[project.optional-dependencies]
+test = ["pytest==8.4.2"]
+build = ["pyinstaller==6.18.0"]
+
+[project.scripts]
+vardiya-takip = "vardiya.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["vardiya*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
