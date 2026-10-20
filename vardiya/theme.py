@@ -142,9 +142,9 @@ QPushButton#primary:hover {{ background: {t['muted']}; }}
 QPushButton#danger {{ color: {t['lock']}; border-color: {t['lock']}; }}
 QPushButton#ghost {{ border: none; color: {t['muted']}; min-height: 36px; padding: 2px 10px; }}
 QPushButton#ghost:hover {{ color: {t['text']}; }}
-QPushButton#key {{ min-width: 76px; min-height: 76px; max-width: 76px; max-height: 76px;
-                   border-radius: 38px; font-family: "Jost"; font-size: 26px; font-weight: 300; }}
-QPushButton#keyText {{ min-width: 76px; min-height: 76px; max-width: 76px; max-height: 76px;
+QPushButton#key {{ min-width: 74px; min-height: 74px; max-width: 74px; max-height: 74px; padding: 0;
+                   border-radius: 38px; font-family: "Jost"; font-size: 28px; font-weight: 300; }}
+QPushButton#keyText {{ min-width: 74px; min-height: 74px; max-width: 74px; max-height: 74px; padding: 0;
                        border-radius: 38px; border: none; color: {t['muted']}; font-size: 13px; }}
 QPushButton#chip {{ min-height: 34px; padding: 2px 16px; border-radius: 17px; }}
 QPushButton#chip:checked {{ background: {t['primary']}; color: {t['on_primary']}; border: none; }}
@@ -153,8 +153,8 @@ QLineEdit, QComboBox, QDateEdit, QDateTimeEdit {{ background: {t['input']}; colo
     selection-background-color: {t['selection']}; selection-color: {t['text']}; }}
 QLineEdit:focus, QComboBox:focus, QDateEdit:focus, QDateTimeEdit:focus {{ border-color: {t['muted']}; }}
 QLineEdit#search {{ border-radius: 20px; padding-left: 16px; background: {t['surface']}; }}
-QLineEdit#pin {{ font-family: "Quicksand"; font-size: 34px; letter-spacing: 10px; border: none;
-                 background: transparent; min-height: 52px; lineedit-password-character: 8226; }}
+QLineEdit#pin {{ border: none; background: transparent; color: transparent; min-height: 2px;
+                 max-height: 2px; padding: 0; selection-background-color: transparent; }}
 QComboBox::drop-down, QDateEdit::drop-down, QDateTimeEdit::drop-down {{ border: none; width: 28px;
     background: transparent; }}
 QComboBox QAbstractItemView {{ background: {t['surface']}; color: {t['text']};

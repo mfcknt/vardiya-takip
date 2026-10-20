@@ -23,7 +23,7 @@ from .reports import build_report, duration, export_audit, export_report
 from .security import AppError
 from .storage import inspect_database
 from .widgets import (
-    Backdrop, HeatmapWidget, PersonRing, RingWidget, StatTile, TimelineWidget, WelcomeDialog,
+    Backdrop, HeatmapWidget, PersonRing, PinDots, RingWidget, StatTile, TimelineWidget, WelcomeDialog,
     app_icon, avatar_pixmap, current, font, load_fonts, logo_pixmap, set_current,
 )
 
@@ -311,8 +311,12 @@ class PinDialog(QDialog):
         self.pin.setValidator(QRegularExpressionValidator(QRegularExpression("[0-9]{0,6}")))
         self.pin.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.pin.setAccessibleName("Altı haneli personel PIN")
-        self.pin.setPlaceholderText("······")
-        box.addWidget(self.pin)
+        self.dots = PinDots()
+        self.pin.textChanged.connect(lambda text: self.dots.set_filled(len(text)))
+        box.addSpacing(6)
+        box.addWidget(self.dots, 0, Qt.AlignmentFlag.AlignHCenter)
+        box.addWidget(self.pin)   # invisible: keeps physical-keyboard input working
+        box.addSpacing(6)
         grid = QGridLayout()
         grid.setHorizontalSpacing(18)
         grid.setVerticalSpacing(12)
@@ -357,6 +361,7 @@ class PinDialog(QDialog):
                                "İşlem doğrulanamadı. Yönetici kayıtları kontrol etmeli.")
             self.error.show()
             self.pin.clear()
+            self.dots.set_filled(0, error=True)
         finally:
             self.confirm_button.setEnabled(True)
 

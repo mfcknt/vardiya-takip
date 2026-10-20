@@ -127,7 +127,8 @@ def paint_ring(p, cx, cy, r, state, progress, letters, t=None, hover=False):
         p.setPen(pen("ring_idle", 1.5))
         p.drawEllipse(box)
     p.setPen(QColor(t[text_key]))
-    p.setFont(font("Jost", max(24 * s, r * 0.95), QFont.Weight.Light if r > 20 else QFont.Weight.Normal))
+    size = 24 * s if r > 20 else max(24 * s, r * 0.95)   # tiny avatars stay legible
+    p.setFont(font("Jost", size, QFont.Weight.Light if r > 20 else QFont.Weight.Normal))
     p.drawText(box.adjusted(-r, 0, r, 0), Qt.AlignmentFlag.AlignCenter, letters)
     if state == "locked":
         # small padlock under the letters
@@ -181,6 +182,35 @@ class PersonRing(QAbstractButton):
             q = QPen(QColor(t["muted"]), 1, Qt.PenStyle.DotLine)
             p.setPen(q)
             p.drawRoundedRect(QRectF(4, 4, self.width() - 8, self.height() - 8), 18, 18)
+        p.end()
+
+
+class PinDots(QWidget):
+    """Six small rings that fill as digits are typed (no font glyph needed)."""
+    def __init__(self, count=6, parent=None):
+        super().__init__(parent)
+        self.count, self.filled, self.error = count, 0, False
+        self.setFixedSize(count * 34, 34)
+
+    def set_filled(self, n, error=False):
+        self.filled, self.error = n, error
+        self.update()
+
+    def paintEvent(self, _event):
+        t = current()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        key = "lock" if self.error else "ring"
+        for i in range(self.count):
+            center = QPointF(17 + i * 34, 17)
+            if i < self.filled:
+                p.setPen(Qt.PenStyle.NoPen)
+                p.setBrush(QColor(t[key]))
+                p.drawEllipse(center, 7, 7)
+            else:
+                p.setBrush(Qt.BrushStyle.NoBrush)
+                p.setPen(QPen(QColor(t["ring_idle"] if not self.error else t["lock"]), 1.5))
+                p.drawEllipse(center, 7, 7)
         p.end()
 
 

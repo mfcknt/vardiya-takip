@@ -249,3 +249,17 @@ def test_logo_and_fonts_are_bundled(qapp):
     assert not logo_pixmap("#f6ece3", 80).isNull()
     assert not app_icon().isNull()
     assert (ASSETS / "icon.ico").exists() and (ASSETS / "fonts" / "OFL-Jost.txt").exists()
+
+
+def test_pin_dots_follow_typed_digits(qapp, system):
+    s, _, _, _ = system
+    dialog = PinDialog(s, s.kiosk_employees()[0])
+    for digit in "482":
+        dialog.press(digit)
+    assert dialog.dots.filled == 3
+    dialog.press("Sil")
+    assert dialog.dots.filled == 2
+    dialog.pin.setText("000000")
+    dialog.confirm()
+    assert dialog.dots.filled == 0 and dialog.dots.error
+    dialog.reject()
