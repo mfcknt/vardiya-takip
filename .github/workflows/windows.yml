@@ -25,6 +25,7 @@ jobs:
           .\.venv\Scripts\python.exe -m pip install -e ".[test,build]"
       - name: Test
         id: test
+        timeout-minutes: 15
         shell: pwsh
         run: .\.venv\Scripts\python.exe -m pytest -q --junitxml=test-results.xml
         env:
@@ -35,6 +36,7 @@ jobs:
         run: .\.venv\Scripts\python.exe scripts\ci_annotate.py test-results.xml
       - name: Screenshots
         if: always()
+        timeout-minutes: 5
         shell: pwsh
         run: |
           $out = & .\.venv\Scripts\python.exe scripts\screenshots.py screenshots 2>&1

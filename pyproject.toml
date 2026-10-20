@@ -24,3 +24,4 @@ vardiya = ["assets/*.png", "assets/*.ico", "assets/fonts/*.ttf", "assets/fonts/*
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+faulthandler_timeout = 120

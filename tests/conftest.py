@@ -45,10 +45,37 @@ def system(tmp_path):
     db.close()
 
 
+MODAL_SEEN = []
+
+
 @pytest.fixture(scope="session")
 def qapp():
-    from PySide6.QtWidgets import QApplication
+    """QApplication with a watchdog: an unexpected modal window (e.g. an error
+    message box) would block an offscreen test run forever. The watchdog
+    closes it and the per-test check below turns it into a readable failure."""
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication, QMessageBox
     from vardiya.ui import apply_theme
     app = QApplication.instance() or QApplication([])
     apply_theme(app)
+
+    def close_modals():
+        widget = app.activeModalWidget()
+        if widget is None:
+            return
+        text = widget.text() if isinstance(widget, QMessageBox) else widget.windowTitle()
+        MODAL_SEEN.append(f"{type(widget).__name__}: {text}")
+        widget.reject() if hasattr(widget, "reject") else widget.close()
+
+    watchdog = QTimer()
+    watchdog.timeout.connect(close_modals)
+    watchdog.start(1500)
+    app._vardiya_watchdog = watchdog
     yield app
+
+
+@pytest.fixture(autouse=True)
+def no_unexpected_modals():
+    MODAL_SEEN.clear()
+    yield
+    assert not MODAL_SEEN, "Beklenmeyen modal pencere: " + " | ".join(MODAL_SEEN)

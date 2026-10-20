@@ -101,6 +101,16 @@ def main(out):
     out.mkdir(parents=True, exist_ok=True)
     app = QApplication(sys.argv[:1])
     apply_theme(app, "dark")
+
+    def fail_on_modal():
+        widget = app.activeModalWidget()
+        if widget is not None:
+            text = widget.text() if hasattr(widget, "text") else widget.windowTitle()
+            print("Beklenmeyen modal pencere:", text, flush=True)
+            os._exit(3)
+    watchdog = QTimer()
+    watchdog.timeout.connect(fail_on_modal)
+    watchdog.start(1000)
     data = Path(tempfile.mkdtemp())
     clock = Clock(ts("2026-10-20T21:42"))
     db = Database(data / "vardiya.sqlite3")
