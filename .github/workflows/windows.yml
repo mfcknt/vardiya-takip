@@ -39,10 +39,16 @@ jobs:
       - name: Smoke test packaged maintenance tool
         shell: pwsh
         run: |
-          $data = Join-Path $env:RUNNER_TEMP "vardiya-smoke"
+          $empty = Join-Path $env:RUNNER_TEMP "vardiya-empty"
+          & .\dist\VardiyaTakip\VardiyaBakim.exe --data-dir $empty --check
+          if ($LASTEXITCODE -ne 1) { throw "Boş klasör reddedilmedi: $LASTEXITCODE" }
+          $data = Join-Path $env:RUNNER_TEMP "vardiya-data"
+          .\.venv\Scripts\python.exe scripts\make_sample_db.py $data
+          if ($LASTEXITCODE -ne 0) { throw "Örnek veritabanı oluşturulamadı" }
           & .\dist\VardiyaTakip\VardiyaBakim.exe --data-dir $data --check
-          if ($LASTEXITCODE -ne 1) { throw "Boş klasör denetimi beklenmeyen sonuç: $LASTEXITCODE" }
-          Write-Host "::notice title=Paket::VardiyaBakim.exe çalıştı (boş veri klasörü doğru şekilde reddedildi)."
+          if ($LASTEXITCODE -ne 0) { throw "Paketlenmiş bütünlük denetimi başarısız: $LASTEXITCODE" }
+          Write-Host "::notice title=Paket::VardiyaBakim.exe gerçek bir veritabanını doğruladı ve boş klasörü reddetti."
+          exit 0
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
