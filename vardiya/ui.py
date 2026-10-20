@@ -53,9 +53,42 @@ QHeaderView::section { background: #e9eee7; padding: 12px; border: 0; font-weigh
 QTabBar::tab { padding: 14px 18px; background: #e9eee7; }
 QTabBar::tab:selected { background: #176b52; color: white; }
 QScrollBar:vertical { width: 22px; }
-QCheckBox { min-height: 42px; }
+QCheckBox { min-height: 42px; color: #183d3c; background: transparent; }
+QTabWidget::pane { background: #f3f5ef; border: 1px solid #d8e0d8; }
+QTabWidget > QWidget, QScrollArea, QScrollArea > QWidget > QWidget { background: #f3f5ef; }
 QCheckBox::indicator { width: 24px; height: 24px; }
 """
+
+
+def apply_light_theme(app):
+    """Always use the app's own light design, even in macOS/Windows dark mode.
+
+    The stylesheet only colors some widgets; without a fixed light palette the
+    rest (tab pages, checkbox labels) followed the OS dark scheme and became
+    unreadable (dark text on dark gray).
+    """
+    from PySide6.QtGui import QColor, QPalette
+    try:
+        app.styleHints().setColorScheme(Qt.ColorScheme.Light)
+    except AttributeError:
+        pass  # Qt < 6.8
+    palette = QPalette()
+    colors = {
+        QPalette.ColorRole.Window: "#f3f5ef", QPalette.ColorRole.WindowText: "#183d3c",
+        QPalette.ColorRole.Base: "#ffffff", QPalette.ColorRole.AlternateBase: "#f4f7f2",
+        QPalette.ColorRole.Text: "#183d3c", QPalette.ColorRole.Button: "#ffffff",
+        QPalette.ColorRole.ButtonText: "#183d3c", QPalette.ColorRole.Highlight: "#176b52",
+        QPalette.ColorRole.HighlightedText: "#ffffff", QPalette.ColorRole.ToolTipBase: "#ffffff",
+        QPalette.ColorRole.ToolTipText: "#183d3c", QPalette.ColorRole.PlaceholderText: "#6f817c",
+        QPalette.ColorRole.Link: "#176b52", QPalette.ColorRole.BrightText: "#ffffff",
+    }
+    for role, color in colors.items():
+        palette.setColor(role, QColor(color))
+    for role in (QPalette.ColorRole.WindowText, QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
+        palette.setColor(QPalette.ColorGroup.Disabled, role, QColor("#899792"))
+    app.setPalette(palette)
+    app.setStyle("Fusion")
+    app.setStyleSheet(STYLE)
 
 
 def guarded(fn):

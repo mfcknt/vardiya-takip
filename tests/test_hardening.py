@@ -328,3 +328,23 @@ def test_turkish_money_display():
     assert tl(5) == "0,05"
     assert tl(-3000) == "-30,00"
     assert tl(123456789) == "1.234.567,89"
+
+
+# --- system clock --------------------------------------------------------------
+
+def test_system_clock_uses_sleep_aware_monotonic(monkeypatch):
+    import sys as _sys
+    import time as _time
+    from vardiya import service as module
+    clock = module.SystemClock()
+    first = clock.monotonic()
+    assert clock.monotonic() >= first
+    if _sys.platform == "darwin":
+        assert clock._clock_id == _time.CLOCK_MONOTONIC
+    elif _sys.platform.startswith("linux"):
+        assert clock._clock_id == _time.CLOCK_BOOTTIME
+    else:
+        assert clock._clock_id is None  # Windows: GetTickCount64 already counts sleep
+    # A failing clock id falls back to time.monotonic() instead of crashing.
+    clock._clock_id = -12345
+    assert clock.monotonic() > 0 and clock._clock_id is None

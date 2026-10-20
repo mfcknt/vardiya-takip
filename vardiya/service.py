@@ -1,4 +1,5 @@
 import secrets
+import sys
 import time
 import uuid
 from datetime import datetime
@@ -9,11 +10,34 @@ from .reports import business_day, midnight
 from .storage import Database, canonical
 
 
+def _sleep_aware_clock_id():
+    """A monotonic clock that keeps counting while the computer sleeps.
+
+    time.monotonic() pauses during sleep on macOS (mach_absolute_time), so a
+    laptop lid close looked like a wall-clock jump. Apple's CLOCK_MONOTONIC
+    and Linux CLOCK_BOOTTIME include sleep. On Windows (Python 3.12)
+    time.monotonic() is GetTickCount64, which already includes sleep.
+    """
+    if sys.platform == "darwin" and hasattr(time, "CLOCK_MONOTONIC"):
+        return time.CLOCK_MONOTONIC
+    if sys.platform.startswith("linux") and hasattr(time, "CLOCK_BOOTTIME"):
+        return time.CLOCK_BOOTTIME
+    return None
+
+
 class SystemClock:
+    def __init__(self):
+        self._clock_id = _sleep_aware_clock_id()
+
     def wall(self):
         return int(time.time())
 
     def monotonic(self):
+        if self._clock_id is not None:
+            try:
+                return time.clock_gettime(self._clock_id)
+            except (OSError, AttributeError):  # AttributeError: no clock_gettime (Windows)
+                self._clock_id = None
         return time.monotonic()
 
 

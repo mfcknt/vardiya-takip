@@ -64,11 +64,10 @@ def main():
             print(f"Kurtarma tamamlandı. Önceki veriler: {archive}")
             return 0
         from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
-        from .ui import MainWindow, PasswordDialog, STYLE
+        from .ui import MainWindow, PasswordDialog, apply_light_theme
         app = QApplication(sys.argv[:1])
         app.setApplicationName("VardiyaTakip")
-        app.setStyle("Fusion")
-        app.setStyleSheet(STYLE)
+        apply_light_theme(app)
         try:
             db = Database(db_path)
         except (AppError, sqlite3.Error, OSError) as exc:

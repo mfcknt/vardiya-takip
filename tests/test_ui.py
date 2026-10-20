@@ -183,3 +183,16 @@ def test_report_today_uses_business_day(qapp, system):
     assert panel.first.date().toPython().isoformat() == "2026-10-20"
     assert panel.report_table.columnCount() == 8
     panel.reject()
+
+
+def test_light_theme_is_forced_even_in_dark_mode(qapp):
+    from PySide6.QtGui import QPalette
+    from vardiya.ui import apply_light_theme
+    dark = QPalette()
+    dark.setColor(QPalette.ColorRole.Window, Qt.GlobalColor.black)
+    qapp.setPalette(dark)
+    apply_light_theme(qapp)
+    palette = qapp.palette()
+    assert palette.color(QPalette.ColorRole.Window).lightness() > 200
+    assert palette.color(QPalette.ColorRole.Base).lightness() > 200
+    assert palette.color(QPalette.ColorRole.WindowText).lightness() < 100
