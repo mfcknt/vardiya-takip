@@ -14,6 +14,10 @@ def escape(text):
 
 
 def main(path):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
     report = Path(path)
     if not report.exists():
         print("::error title=pytest::Test raporu üretilmedi (kurulum veya toplama hatası).")
