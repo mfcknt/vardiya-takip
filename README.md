@@ -21,7 +21,8 @@ Varsayılan şifre, önceden tanımlı personel veya gizli şifre sıfırlama yo
 Kurulumdan sonraki normal kullanım internetsizdir. Bulut bağlantısı, telemetri veya sunucu yoktur.
 
 Hazır Windows paketi üretmek için [Windows dağıtım yönergesini](docs/WINDOWS.md) izleyin.
-Bu kaynak tesliminde Windows `.exe` dosyası yoktur; testler macOS üzerinde çalıştırılmıştır.
+Her `main` gönderiminde GitHub Actions Windows üzerinde tüm testleri çalıştırır ve
+`VardiyaTakip-Windows-x64` paketini (EXE klasörü, ZIP) iş akışı çıktısı olarak üretir.
 
 ## İçerik
 

@@ -2,12 +2,16 @@
 
 Tarih: 20 Ekim 2026.
 
-Ortam: macOS 27.0.1 / Apple Silicon, Python 3.12.14, SQLite 3.53.1,
-PySide6 6.10.2, openpyxl 3.1.5, pytest 8.4.2.
+Ortamlar:
+- **Windows (GitHub Actions `windows-latest`, x64), Python 3.12** — tüm testler (Qt `offscreen` dâhil),
+  PyInstaller paketi ve paketlenmiş `VardiyaBakim.exe` duman testi. Her `main` gönderiminde otomatik çalışır.
+- Linux, Python 3.13 — Qt dışındaki testler (geliştirme sırasında).
+- İlk teslim: macOS 27.0.1 / Apple Silicon, Python 3.12.14, SQLite 3.53.1, PySide6 6.10.2.
 
 ## Otomatik testler
 
-**55 test geçti.** Arayüz testleri Qt `offscreen` platformuyla yürütülür.
+**Windows’ta 95 test geçti.** Arayüz testleri Qt `offscreen` platformuyla yürütülür.
+CI, başarısız testleri GitHub annotation olarak yayınlar (`scripts/ci_annotate.py`).
 Testlerin tamamı geçici klasörlerde veri oluşturur; gerçek uygulama verilerine erişmez.
 
 ```sh
@@ -39,6 +43,15 @@ python -m pytest -q
 | Dışa aktarma hatası | Başarısız yeni rapor eski dosyayı bozmaz |
 | Şema | Bilinmeyen veritabanı şeması sessizce değiştirilmez |
 | Qt arayüzü | PIN düğmeleri, giriş/çıkış, iptal, yanlış PIN, arama, yönetici sekmeleri ve kapanma |
+| Performans | 3 yıl × 30 personel veride çakışma denetimi < 0,5 sn; günlük yedek süreç başına bir kez doğrulanır |
+| Çakışma algoritması | Yeni sıralı tarama, eski self-join ile 400 rastgele veri kümesinde ve kenar durumlarında aynı sonucu verir |
+| Saat incelemesi | Uyarıda giriş/çıkış sürer ve işaretlenir; düzeltme işareti kaldırır; uzun ara yalnızca bildirim |
+| Kademeli kilit | 30 sn → 5 dk; doğru PIN sayacı sıfırlar; yönetici gerekçeyle kilidi kaldırır; ana ekranda görünür |
+| Yedek saklama | Son 30 gün + ay başları + son 20 kapanış; elle alınan ve diğer dosyalara dokunulmaz |
+| Filtreler | Kayıt/ödeme tarih ve personel filtresi, son 1000 işlem, yeni personel filtre listesine eklenir |
+| TL biçimi | 1.500,50 / 1500.50 / 1.500 girişleri; 1.440,00 gösterimi; hatalı tutar reddi |
+| Konsol kodlaması | Bakım aracı cp1252 yönlendirilmiş çıktıda Türkçe metinle çökmez |
+| Windows kilidi | İkinci uygulama örneği kilit dosyasını okurken çökmeden “başka uygulamada açık” der |
 
 Süreç çökmesi testleri gerçek donanım elektrik kesintisinin veya disk kontrolcüsü arızasının
 birebir karşılığı değildir. SQLite FULL senkronizasyonu ve yedekler bu riskler için birlikte kullanılır.
@@ -53,12 +66,18 @@ birebir karşılığı değildir. SQLite FULL senkronizasyonu ve yedekler bu ris
 - Ekran görüntüleri: `personel-ekrani.png`, `pin-ekrani.png`, `yonetici-ekrani.png`.
 - Görsellerdeki kişiler ve tutarlar yalnızca örnektir; projede hazır personel veritabanı bulunmaz.
 
+## Windows CI’ın bulduğu ve düzeltilen hatalar
+
+- İkinci uygulama örneği, Windows’ta kilitli bayttan okurken `PermissionError` ile çöküyordu (ilk teslimde de vardı).
+- Paketlenmiş `VardiyaBakim.exe`, çıktısı yönlendirildiğinde Türkçe karakterde `UnicodeEncodeError` ile çöküyordu.
+
 ## Henüz doğrulanmayanlar
 
-- Windows üzerinde test çalıştırma ve `.exe` üretme; verilen Windows iş akışı henüz uzakta çalıştırılmadı.
+- Grafik `VardiyaTakip.exe`’nin gerçek bir masaüstünde elle açılması (CI ekransızdır; bakım aracı ve
+  arayüz testleri çalıştı).
 - Gerçek dokunmatik Windows cihaz, Windows ekran klavyesi, DPI/çoklu monitör davranışı.
 - Hedef Microsoft Excel uygulamasında açılış; XLSX içerikleri openpyxl ile tekrar okunarak denetlendi.
 - Donanım güç kesintisi, hasarlı disk, antivirüs/SmartScreen ve kod imzası.
-- Büyük ölçekli performans; MVP tek işletme/tek bilgisayar içindir.
+- Düşük donanımlı gerçek Windows bilgisayarda performans; ölçümler CI ve Linux üzerindedir.
 
 Windows hedef cihaz kabul adımları için `WINDOWS.md` dosyasına bakın.
