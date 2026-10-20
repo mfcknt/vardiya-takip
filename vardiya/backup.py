@@ -8,7 +8,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .security import AppError, verify_secret
-from .storage import inspect_database
+from .storage import fsync_file, inspect_database
+
+AUTO_PREFIX, CLOSE_PREFIX = "otomatik-", "kapanis-"
+KEEP_DAILY, KEEP_CLOSING = 30, 20
 
 
 def create_backup(db, destination: Path):
@@ -27,8 +30,7 @@ def create_backup(db, destination: Path):
         errors = inspect_database(Path(staging))
         if errors:
             raise AppError("Yedek doğrulanamadı: " + "; ".join(errors))
-        with open(staging, "rb") as f:
-            os.fsync(f.fileno())
+        fsync_file(staging)
         os.replace(staging, destination)
         digest = hashlib.sha256(destination.read_bytes()).hexdigest()
         destination.with_suffix(destination.suffix + ".sha256").write_text(
@@ -40,14 +42,74 @@ def create_backup(db, destination: Path):
             os.unlink(staging)
 
 
-def automatic_backup(db, zone):
+def backup_dir(db) -> Path:
+    return db.path.parent / "backups"
+
+
+def automatic_backup(db, zone, verified=None):
+    """Take today's first snapshot once; verify an existing one once.
+
+    `verified` is a caller-owned set of paths already checked in this process,
+    so the 15-second heartbeat does not re-inspect the whole file every tick.
+    """
     day = datetime.now(zone).strftime("%Y-%m-%d")
-    path = db.path.parent / "backups" / f"otomatik-{day}.sqlite3"
+    path = backup_dir(db) / f"{AUTO_PREFIX}{day}.sqlite3"
+    if verified is not None and path in verified:
+        return path
     if not path.exists():
         create_backup(db, path)
+        prune_backups(backup_dir(db))
     elif inspect_database(path):
         raise AppError("Bugünkü otomatik yedek doğrulanamadı; yeni bir elle yedek alın.")
+    if verified is not None:
+        verified.add(path)
     return path
+
+
+def closing_backup(db):
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+    path = create_backup(db, backup_dir(db) / f"{CLOSE_PREFIX}{stamp}.sqlite3")
+    prune_backups(backup_dir(db))
+    return path
+
+
+def prune_backups(directory: Path, keep_daily=KEEP_DAILY, keep_closing=KEEP_CLOSING):
+    """Delete only app-named automatic/closing backups beyond the retention.
+
+    Kept: newest `keep_daily` daily snapshots, the first daily snapshot of every
+    month, and the newest `keep_closing` closing snapshots. Manual backups and
+    any other files are never touched. Returns the removed paths.
+    """
+    directory = Path(directory)
+    if not directory.is_dir():
+        return []
+    daily = sorted(p for p in directory.glob(AUTO_PREFIX + "????-??-??.sqlite3"))
+    closing = sorted(p for p in directory.glob(CLOSE_PREFIX + "*.sqlite3"))
+    # Note: list[-0:] is the whole list, so zero counts are handled explicitly.
+    keep = set(daily[-keep_daily:] if keep_daily else []) | set(
+        closing[-keep_closing:] if keep_closing else [])
+    first_of_month = {}
+    for p in daily:
+        first_of_month.setdefault(p.name[len(AUTO_PREFIX):len(AUTO_PREFIX) + 7], p)
+    keep |= set(first_of_month.values())
+    removed = []
+    for p in daily + closing:
+        if p in keep:
+            continue
+        for target in (p, p.with_suffix(p.suffix + ".sha256")):
+            try:
+                target.unlink()
+            except FileNotFoundError:
+                pass
+        removed.append(p)
+    return removed
+
+
+def backup_usage(db):
+    """(file count, total bytes) of the application backup folder."""
+    directory = backup_dir(db)
+    files = [p for p in directory.glob("*.sqlite3")] if directory.is_dir() else []
+    return len(files), sum(p.stat().st_size for p in files)
 
 
 def restore_database(source: Path, destination: Path, password: str):
@@ -100,8 +162,7 @@ def restore_database(source: Path, destination: Path, password: str):
                 staged.set_meta("clock_alert", "Yedekten dönüldü; saat ve açık kayıtları inceleyin.")
         finally:
             staged.close()
-        with open(temporary, "rb") as f:
-            os.fsync(f.fileno())
+        fsync_file(temporary)
         archive = destination.parent / "recovery" / datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S-%f")
         archive.mkdir(parents=True)
         manifest = {}

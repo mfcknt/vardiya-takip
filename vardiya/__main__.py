@@ -5,7 +5,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from .backup import create_backup, restore_database
+from .backup import closing_backup, restore_database
 from .security import AppError
 from .service import Service
 from .storage import Database, FileLock, default_data_dir, inspect_database
@@ -78,10 +78,7 @@ def main():
         result = app.exec()
         if not window.restoring:
             try:
-                from datetime import datetime
-                destination = directory / "backups" / (
-                    "kapanis-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f") + ".sqlite3")
-                create_backup(db, destination)
+                closing_backup(db)
             except (AppError, sqlite3.Error, OSError):
                 logging.exception("Kapanış yedeği alınamadı")
         return result

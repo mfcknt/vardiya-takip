@@ -9,7 +9,7 @@ from pathlib import Path
 
 from .security import AppError
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SCHEMA = """
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE credentials(
@@ -29,6 +29,7 @@ CREATE TABLE sessions(
  rate_cents INTEGER NOT NULL CHECK(rate_cents BETWEEN 0 AND 100000000),
  voided INTEGER NOT NULL DEFAULT 0 CHECK(voided IN (0,1)),
  revision INTEGER NOT NULL DEFAULT 1,
+ review TEXT NOT NULL DEFAULT '',
  CHECK(end_at IS NULL OR end_at > start_at));
 CREATE UNIQUE INDEX one_open_session ON sessions(employee_id)
  WHERE end_at IS NULL AND voided=0;
@@ -58,6 +59,26 @@ def default_data_dir() -> Path:
     if sys.platform == "darwin":
         return Path.home() / "Library" / "Application Support" / "VardiyaTakip"
     return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "vardiya-takip"
+
+
+def fsync_file(path) -> None:
+    """Flush a closed file to disk.
+
+    Windows FlushFileBuffers needs a writable handle; fsync on a read-only
+    descriptor fails there with EBADF, so always open for update.
+    """
+    with open(path, "r+b") as f:
+        os.fsync(f.fileno())
+
+
+# Sorted sweep per employee: a record overlaps an earlier one exactly when it
+# starts before the latest end seen so far. O(n log n) instead of a self-join.
+OVERLAP_SQL = """SELECT 1 FROM (
+    SELECT start_at, MAX(COALESCE(end_at, 9223372036854775807)) OVER (
+        PARTITION BY employee_id ORDER BY start_at, id
+        ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING) AS previous_end
+    FROM sessions WHERE voided=0)
+  WHERE previous_end > start_at LIMIT 1"""
 
 
 def canonical(value) -> str:
@@ -111,8 +132,7 @@ class Database:
                                           f"\nPRAGMA user_version={SCHEMA_VERSION};\nCOMMIT;")
                 finally:
                     initial.close()
-                with open(staging, "rb") as f:
-                    os.fsync(f.fileno())
+                fsync_file(staging)
                 os.replace(staging, self.path)
             finally:
                 if os.path.exists(staging):
@@ -171,6 +191,9 @@ class Database:
         )
 
 
+SNAPSHOT_DEFAULTS = {"active": 1, "voided": 0, "review": ""}
+
+
 def inspect_database(path: Path) -> list[str]:
     """Read-only structural, relational, business and audit-chain checks."""
     errors = []
@@ -190,11 +213,7 @@ def inspect_database(path: Path) -> list[str]:
             actual = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
             if not expected <= actual:
                 return ["Gerekli tablolar eksik."]
-            if conn.execute("""SELECT 1 FROM sessions a JOIN sessions b
-                ON a.employee_id=b.employee_id AND a.id<b.id
-                WHERE a.voided=0 AND b.voided=0
-                AND a.start_at<COALESCE(b.end_at,9223372036854775807)
-                AND b.start_at<COALESCE(a.end_at,9223372036854775807) LIMIT 1""").fetchone():
+            if conn.execute(OVERLAP_SQL).fetchone():
                 errors.append("Çakışan çalışma kayıtları var.")
             if conn.execute("""SELECT 1 FROM employees e LEFT JOIN credentials c
                 ON c.subject='staff:'||e.id WHERE c.subject IS NULL LIMIT 1""").fetchone():
@@ -211,7 +230,8 @@ def inspect_database(path: Path) -> list[str]:
                 if isinstance(after, dict) and row[3].startswith(("session:", "employee:", "payment:")):
                     snapshots.setdefault(row[3], {}).update(after)
             for table, entity, fields in [
-                ("sessions", "session", ("employee_id", "start_at", "end_at", "rate_cents", "voided", "revision")),
+                ("sessions", "session", ("employee_id", "start_at", "end_at", "rate_cents", "voided",
+                                         "revision", "review")),
                 ("employees", "employee", ("name", "rate_cents", "active")),
                 ("payments", "payment", ("employee_id", "paid_at", "amount_cents", "kind", "note", "voided")),
             ]:
@@ -219,10 +239,7 @@ def inspect_database(path: Path) -> list[str]:
                 record_ids = {r[0] for r in records}
                 for record in records:
                     snapshot = snapshots.get(f"{entity}:{record[0]}", {})
-                    expected_values = [
-                        snapshot.get(field, 1 if field == "active" else 0 if field == "voided" else None)
-                        for field in fields
-                    ]
+                    expected_values = [snapshot.get(field, SNAPSHOT_DEFAULTS.get(field)) for field in fields]
                     if not snapshot or list(record[1:]) != expected_values:
                         errors.append(f"İşlem geçmişi ile {table} kaydı uyuşmuyor: {record[0]}.")
                         break

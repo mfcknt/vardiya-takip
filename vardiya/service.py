@@ -1,5 +1,4 @@
 import secrets
-import sqlite3
 import time
 import uuid
 from datetime import datetime
@@ -23,11 +22,31 @@ def valid_cents(value, positive=False):
     return value
 
 
+LOCK_AFTER = 5            # failed attempts before a lock
+ADMIN_LOCK_SECONDS = 300
+STAFF_LOCK_STEPS = (30, 60, 120, 240, 300)   # escalating staff PIN locks
+LONG_GAP_SECONDS = 36 * 3600
+
+
+def staff_lock_seconds(failures):
+    """Lock length after `failures` consecutive wrong PINs (0 = no lock)."""
+    if failures < LOCK_AFTER:
+        return 0
+    return STAFF_LOCK_STEPS[min(failures - LOCK_AFTER, len(STAFF_LOCK_STEPS) - 1)]
+
+
 def reason_text(reason):
     reason = reason.strip()
     if not 5 <= len(reason) <= 500:
         raise AppError("İşlem gerekçesi 5–500 karakter olmalı.")
     return reason
+
+
+def lock_message(seconds):
+    minutes, rest = divmod(max(1, int(seconds)), 60)
+    wait = f"{minutes} dk {rest} sn" if minutes else f"{rest} sn"
+    return (f"Çok sayıda hatalı deneme. Yeniden denemek için {wait} bekleyin. "
+            "Yönetici kilidi kaldırabilir.")
 
 
 class Service:
@@ -62,25 +81,40 @@ class Service:
             self.db.audit(self.clock.wall(), "admin", "SETUP", "system", after={"timezone": timezone})
 
     def tick(self):
-        """Detect backward time, wall/monotonic drift, and long offline gaps."""
+        """Detect backward time and wall/monotonic drift; note long offline gaps.
+
+        A clock alert never stops staff from recording work: while it is active,
+        every start/finish is flagged for admin review instead. A long gap since
+        the last use (holiday, closed day) is only an informational notice.
+        Returns the active clock alert text ("" when none).
+        """
         now, mono = self.clock.wall(), self.clock.monotonic()
         with self.db.transaction():
             last = int(self.db.meta("last_wall", now))
-            cause = ""
+            cause = notice = ""
             if now < last - 5:
                 cause = "Bilgisayar saati geriye alındı."
             elif self._sample and abs((now - self._sample[0]) - (mono - self._sample[1])) > 120:
                 cause = "Bilgisayar saati ile geçen süre uyuşmuyor."
-            elif not self._sample and now - last > 36 * 3600:
-                cause = "Son kullanımın üzerinden 36 saatten fazla geçti; saati doğrulayın."
+            elif not self._sample and now - last > LONG_GAP_SECONDS:
+                notice = ("Uygulama uzun süre kapalı kaldı "
+                          f"({(now - last) // 3600} saat). Bilgisayar saatini doğrulayın.")
             if cause and not self.db.meta("clock_alert", ""):
                 self.db.set_meta("clock_alert", cause)
                 self.db.audit(now, "system", "CLOCK_ALERT", "clock",
                               after={"last": last, "current": now}, reason=cause)
+            if notice and not self.db.meta("clock_notice", ""):
+                self.db.set_meta("clock_notice", notice)
+                self.db.audit(now, "system", "CLOCK_NOTICE", "clock",
+                              after={"last": last, "current": now}, reason=notice)
             self.db.set_meta("last_wall", max(now, last))
             alert = self.db.meta("clock_alert", "")
         self._sample = (now, mono)
         return alert
+
+    def clock_status(self):
+        """(blocking-free alert, informational notice) as stored."""
+        return self.db.meta("clock_alert", ""), self.db.meta("clock_notice", "")
 
     def _authenticate(self, subject, secret):
         # Persist failed attempts even when the caller receives an exception.
@@ -91,17 +125,28 @@ class Service:
             if row is None or len(secret) > 128:
                 error = "Kimlik bilgisi doğrulanamadı."
             elif row["locked_until"] > now:
-                error = "Çok sayıda hatalı deneme. 5 dakikalık kilidin bitmesini bekleyin."
+                error = lock_message(row["locked_until"] - now)
             elif not verify_secret(secret, row["secret"]):
                 failures = row["failures"] + 1
-                locked = now + 300 if failures >= 5 else 0
+                if subject == "admin":
+                    seconds = ADMIN_LOCK_SECONDS if failures >= LOCK_AFTER else 0
+                    stored = 0 if seconds else failures
+                else:
+                    # Staff locks escalate and the counter only resets on a
+                    # correct PIN, an admin unlock or a PIN change.
+                    seconds, stored = staff_lock_seconds(failures), failures
+                locked = now + seconds if seconds else 0
                 self.db.conn.execute(
                     "UPDATE credentials SET failures=?,locked_until=? WHERE subject=?",
-                    (0 if locked else failures, locked, subject),
+                    (stored, locked, subject),
                 )
                 if locked:
-                    self.db.audit(now, "system", "AUTH_LOCK", subject, reason="5 hatalı deneme")
-                error = "Kimlik bilgisi doğrulanamadı."
+                    self.db.audit(now, "system", "AUTH_LOCK", subject,
+                                  after={"failures": failures, "seconds": seconds},
+                                  reason=f"{failures} hatalı deneme")
+                    error = lock_message(seconds)
+                else:
+                    error = "Kimlik bilgisi doğrulanamadı."
             else:
                 self.db.conn.execute(
                     "UPDATE credentials SET failures=0,locked_until=0 WHERE subject=?", (subject,)
@@ -140,20 +185,38 @@ class Service:
         reason = reason_text(reason)
         with self.db.transaction():
             self.db.audit(self.clock.wall(), "admin", "CLOCK_ACK", "clock",
-                          before=self.db.meta("clock_alert", ""), reason=reason)
+                          before={"alert": self.db.meta("clock_alert", ""),
+                                  "notice": self.db.meta("clock_notice", "")}, reason=reason)
             self.db.set_meta("clock_alert", "")
+            self.db.set_meta("clock_notice", "")
             self.db.set_meta("last_wall", self.clock.wall())
         self._sample = (self.clock.wall(), self.clock.monotonic())
 
     def kiosk_employees(self):
         return [dict(r) for r in self.db.conn.execute("""SELECT e.id,e.name,
-            s.id AS session_id,s.start_at FROM employees e LEFT JOIN sessions s
-            ON s.employee_id=e.id AND s.end_at IS NULL AND s.voided=0
+            s.id AS session_id,s.start_at,c.locked_until FROM employees e
+            LEFT JOIN sessions s ON s.employee_id=e.id AND s.end_at IS NULL AND s.voided=0
+            LEFT JOIN credentials c ON c.subject='staff:'||e.id
             WHERE e.active=1 ORDER BY e.name COLLATE NOCASE,e.id""")]
 
     def employees(self, token):
         self.require_admin(token)
-        return [dict(r) for r in self.db.conn.execute("SELECT * FROM employees ORDER BY name,id")]
+        return [dict(r) for r in self.db.conn.execute("""SELECT e.*,c.failures,c.locked_until
+            FROM employees e LEFT JOIN credentials c ON c.subject='staff:'||e.id
+            ORDER BY e.name,e.id""")]
+
+    def unlock_employee(self, token, eid, reason):
+        self.require_admin(token)
+        reason = reason_text(reason)
+        with self.db.transaction():
+            row = self.db.conn.execute("SELECT failures,locked_until FROM credentials WHERE subject=?",
+                                       (f"staff:{eid}",)).fetchone()
+            if not row:
+                raise AppError("Personel bulunamadı.")
+            self.db.conn.execute("UPDATE credentials SET failures=0,locked_until=0 WHERE subject=?",
+                                 (f"staff:{eid}",))
+            self.db.audit(self.clock.wall(), "admin", "AUTH_UNLOCK", f"staff:{eid}",
+                          before=dict(row), reason=reason)
 
     def add_employee(self, token, name, pin, rate_cents):
         self.require_admin(token)
@@ -229,13 +292,12 @@ class Service:
         except (ValueError, TypeError, AttributeError):
             raise AppError("Geçersiz işlem kimliği.")
         self._authenticate(f"staff:{eid}", pin)
-        if self.tick():
-            raise AppError("Saat şüphesi var. Yönetici bilgisayar saatini kontrol etmeli.")
+        self.tick()
         fingerprint = canonical([eid, action, expected_session])
         now = self.clock.wall()
         with self.db.transaction():
-            if self.db.meta("clock_alert", ""):
-                raise AppError("Saat şüphesi var. Yönetici kontrolü gerekli.")
+            # Under a clock alert the work is still recorded, but flagged.
+            review = self.db.meta("clock_alert", "")
             receipt = self.db.conn.execute("SELECT * FROM receipts WHERE request_id=?",
                                            (request_id,)).fetchone()
             if receipt:
@@ -255,30 +317,42 @@ class Service:
                     raise AppError("Zaten açık bir çalışma kaydı var. Ekranı yenileyin.")
                 self._no_overlap(eid, now, None)
                 sid = self.db.conn.execute(
-                    "INSERT INTO sessions(employee_id,start_at,rate_cents) VALUES(?,?,?)",
-                    (eid, now, employee["rate_cents"]),
+                    "INSERT INTO sessions(employee_id,start_at,rate_cents,review) VALUES(?,?,?,?)",
+                    (eid, now, employee["rate_cents"], review),
                 ).lastrowid
             else:
                 if not opened or opened["id"] != expected_session:
                     raise AppError("Açık kayıt değişti veya kapandı. Ekranı yenileyin.")
                 if now <= opened["start_at"]:
-                    raise AppError("Çıkış saati girişten sonra olmalı.")
+                    raise AppError("Bilgisayar saati giriş saatinden önce görünüyor. "
+                                   "Çıkışı yönetici kaydetmeli.")
                 if now - opened["start_at"] > 24 * 3600:
                     raise AppError("24 saati aşan açık kayıt yönetici tarafından düzeltilmeli.")
                 sid = opened["id"]
-                self.db.conn.execute("UPDATE sessions SET end_at=?,revision=revision+1 WHERE id=?",
-                                     (now, sid))
+                self.db.conn.execute(
+                    """UPDATE sessions SET end_at=?,revision=revision+1,
+                       review=CASE WHEN review='' THEN ? ELSE review END WHERE id=?""",
+                    (now, review, sid))
             after = dict(self.db.conn.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone())
             self.db.audit(now, f"staff:{eid}", action.upper(), f"session:{sid}",
                           before=dict(opened) if opened else None, after=after)
             self.db.conn.execute("INSERT INTO receipts VALUES(?,?,?)", (request_id, fingerprint, sid))
         return sid
 
-    def sessions(self, token, eid=None):
+    def sessions(self, token, eid=None, since=None, until=None, review_only=False):
+        """Records overlapping [since, until); open records always overlap `now`."""
         self.require_admin(token)
         return [dict(r) for r in self.db.conn.execute("""SELECT s.*,e.name FROM sessions s
             JOIN employees e ON e.id=s.employee_id WHERE (? IS NULL OR employee_id=?)
-            ORDER BY start_at DESC,id DESC""", (eid, eid))]
+            AND s.start_at < COALESCE(?, 9223372036854775807)
+            AND COALESCE(s.end_at, 9223372036854775807) > COALESCE(?, -1)
+            AND (? = 0 OR (s.review <> '' AND s.voided = 0))
+            ORDER BY start_at DESC,id DESC""", (eid, eid, until, since, int(bool(review_only))))]
+
+    def pending_reviews(self, token):
+        self.require_admin(token)
+        return self.db.conn.execute(
+            "SELECT count(*) FROM sessions WHERE review<>'' AND voided=0").fetchone()[0]
 
     def correct_session(self, token, sid, revision, start, end, reason, void=False):
         self.require_admin(token)
@@ -298,8 +372,10 @@ class Service:
                 ).fetchone():
                     raise AppError("Arşivdeki personel için açık kayıt bırakılamaz.")
                 self._no_overlap(row["employee_id"], start, end, sid)
+            # Saving a correction (or a void) is the admin's review of the record.
             self.db.conn.execute(
-                "UPDATE sessions SET start_at=?,end_at=?,voided=?,revision=revision+1 WHERE id=?",
+                """UPDATE sessions SET start_at=?,end_at=?,voided=?,revision=revision+1,review=''
+                   WHERE id=?""",
                 (start, end, int(bool(void)), sid),
             )
             after = dict(self.db.conn.execute("SELECT * FROM sessions WHERE id=?", (sid,)).fetchone())
@@ -391,14 +467,17 @@ class Service:
             self.db.audit(self.clock.wall(), "admin", "PAYMENT_VOID", f"payment:{pid}",
                           before=dict(row), after={"voided": True}, reason=reason)
 
-    def payments(self, token):
+    def payments(self, token, eid=None, since=None, until=None):
         self.require_admin(token)
         return [dict(r) for r in self.db.conn.execute("""SELECT p.*,e.name FROM payments p
-            JOIN employees e ON e.id=p.employee_id ORDER BY paid_at DESC,p.id DESC""")]
+            JOIN employees e ON e.id=p.employee_id WHERE (? IS NULL OR p.employee_id=?)
+            AND p.paid_at >= COALESCE(?, -1) AND p.paid_at < COALESCE(?, 9223372036854775807)
+            ORDER BY paid_at DESC,p.id DESC""", (eid, eid, since, until))]
 
-    def audit_rows(self, token):
+    def audit_rows(self, token, limit=None):
         self.require_admin(token)
-        return [dict(r) for r in self.db.conn.execute("SELECT * FROM audit ORDER BY id DESC")]
+        return [dict(r) for r in self.db.conn.execute(
+            "SELECT * FROM audit ORDER BY id DESC LIMIT ?", (-1 if limit is None else int(limit),))]
 
     def display_time(self, timestamp):
         if timestamp is None:

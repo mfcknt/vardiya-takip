@@ -1,11 +1,9 @@
 import csv
-import os
 import sqlite3
 import subprocess
 import sys
 import uuid
 from datetime import date
-from pathlib import Path
 
 import pytest
 from openpyxl import load_workbook

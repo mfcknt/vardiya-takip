@@ -41,6 +41,7 @@ def build_report(service, token, first: date, last: date):
         payments = [dict(r) for r in service.db.conn.execute(
             "SELECT * FROM payments WHERE voided=0 AND paid_at<?", (stop,))]
         clock_alert = service.db.meta("clock_alert", "")
+        clock_notice = service.db.meta("clock_notice", "")
     daily = defaultdict(lambda: {"seconds": 0, "open_seconds": 0,
                                  "amount": Fraction(0), "open_amount": Fraction(0)})
     details = []
@@ -53,8 +54,11 @@ def build_report(service, token, first: date, last: date):
             bucket[prefix + "seconds"] += seconds
             bucket[prefix + "amount"] += Fraction(seconds * s["rate_cents"], 3600)
         if end > begin or (s["end_at"] is None and s["start_at"] < stop):
+            notes = [s.get("review") or ""]
+            if end - s["start_at"] > 86400:
+                notes.append("24 saati aşıyor")
             details.append({**s, "name": names[s["employee_id"]],
-                            "review": "24 saati aşıyor" if end - s["start_at"] > 86400 else ""})
+                            "review": " · ".join(n for n in notes if n)})
     day_rows = []
     lifetime = defaultdict(int)
     period = defaultdict(lambda: {"seconds": 0, "open_seconds": 0, "cents": 0, "open_cents": 0})
@@ -78,6 +82,10 @@ def build_report(service, token, first: date, last: date):
     summary = []
     for e in employees:
         eid = e["id"]
+        # Archived staff appear only when they still matter for this period.
+        if not e["active"] and not (period[eid]["seconds"] or period[eid]["open_seconds"]
+                                    or period_paid[eid] or lifetime[eid] - total_paid[eid]):
+            continue
         summary.append({"employee_id": eid, "name": e["name"], **period[eid],
                         "paid_cents": period_paid[eid],
                         "period_net_cents": period[eid]["cents"] - period_paid[eid],
@@ -85,7 +93,9 @@ def build_report(service, token, first: date, last: date):
                                        - period[eid]["cents"] + period_paid[eid],
                         "balance_cents": lifetime[eid] - total_paid[eid]})
     return {"first": first.isoformat(), "last": last.isoformat(), "as_of": now,
-            "timezone": str(zone), "clock_alert": clock_alert, "summary": summary,
+            "timezone": str(zone), "clock_alert": clock_alert, "clock_notice": clock_notice,
+            "review_count": sum(1 for d in details if d.get("review")),
+            "summary": summary,
             "days": day_rows, "sessions": details, "payments": payment_rows}
 
 
@@ -127,7 +137,8 @@ def export_report(service, token, report, destination: Path):
                 writer.writerow(["ÖN HAK EDİŞ — RESMÎ BORDRO DEĞİLDİR",
                                  report["first"], report["last"], report["timezone"]])
                 writer.writerow(["Açık tutarlar bakiyeye dahil değildir.",
-                                 service.display_time(report["as_of"]), report["clock_alert"]])
+                                 service.display_time(report["as_of"]), report["clock_alert"],
+                                 f"İnceleme bekleyen kayıt: {report.get('review_count', 0)}"])
                 writer.writerow(summary_header)
                 writer.writerows([
                     [Decimal(v) if i in (3, 5, 6, 7, 8, 9) else safe_text(v)
@@ -178,6 +189,8 @@ def export_report(service, token, report, destination: Path):
                    ["Dönem", report["first"] + " — " + report["last"]],
                    ["Üretim", service.display_time(report["as_of"])],
                    ["Saat dilimi", report["timezone"]], ["Saat uyarısı", report["clock_alert"]],
+                   ["Saat bildirimi", report.get("clock_notice", "")],
+                   ["İnceleme bekleyen kayıt", report.get("review_count", 0)],
                    ["Kural", "Saniye üzerinden hesaplanır; personel/gün başına kuruşa yuvarlanır."],
                    ["Açık kayıt", "Geçici tahmin; hak ediş ve bakiyeye dahil değildir."],
                    ["Ücret", "İşe girişte sabitlenir; değişiklik sonraki girişlere uygulanır."],
@@ -191,12 +204,24 @@ def export_report(service, token, report, destination: Path):
             os.unlink(temporary)
 
 
+AUDIT_COLUMNS = ["id", "at", "actor", "action", "entity", "before_json", "after_json",
+                 "reason", "previous_hash", "hash"]
+
+
 def export_audit(service, token, destination):
     rows = service.audit_rows(token)
-    if Path(destination).suffix.lower() != ".csv":
+    destination = Path(destination)
+    if destination.suffix.lower() != ".csv":
         raise AppError("İşlem geçmişi için .csv uzantısı kullanın.")
-    with open(destination, "w", encoding="utf-8-sig", newline="") as f:
-        writer = csv.writer(f, delimiter=";")
-        if rows:
-            writer.writerow(rows[0].keys())
-            writer.writerows([[safe_text(v) for v in row.values()] for row in rows])
+    fd, temporary = tempfile.mkstemp(dir=destination.parent, suffix=".csv")
+    os.close(fd)
+    try:
+        with open(temporary, "w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow(AUDIT_COLUMNS + ["Tarih (yerel)"])
+            writer.writerows([[safe_text(row[c]) for c in AUDIT_COLUMNS] + [service.display_time(row["at"])]
+                              for row in rows])
+        os.replace(temporary, destination)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)

@@ -74,3 +74,68 @@ def test_search_filters_employee_cards(qapp, system):
     qapp.processEvents()
     assert "Ayşe" in window.grid.itemAt(0).widget().text()
     window.close()
+
+
+def test_clock_alert_keeps_kiosk_usable_and_flags(qapp, system):
+    s, c, token, _ = system
+    window = MainWindow(s)
+    window.show()
+    s.tick()
+    c.now -= 600
+    window.heartbeat()
+    assert window.cards.isEnabled()
+    assert "işaretleniyor" in window.warning.text()
+    dialog = PinDialog(s, s.kiosk_employees()[0], window)
+    dialog.pin.setText(PIN)
+    dialog.confirm()
+    assert dialog.result() == QDialog.DialogCode.Accepted
+    token = s.login_admin("Restoran!Guvenli2026")
+    assert s.pending_reviews(token) == 1
+    panel = AdminDialog(s, token)
+    assert panel.review_note.text()
+    panel.session_filter.review.setChecked(True)
+    panel.refresh()
+    assert panel.session_table.rowCount() == 1
+    assert panel.session_table.item(0, 6).text()
+    panel.reject()
+    window.close()
+
+
+def test_locked_staff_card_and_admin_status(qapp, system):
+    s, c, token, eid = system
+    import uuid
+    from vardiya.security import AppError
+    for _ in range(5):
+        try:
+            s.attendance(eid, "192837", "start", None, str(uuid.uuid4()))
+        except AppError:
+            pass
+    window = MainWindow(s)
+    window.refresh()
+    assert "Kilitli" in window.grid.itemAt(0).widget().text()
+    panel = AdminDialog(s, token)
+    assert "Kilitli" in panel.people_table.item(0, 3).text()
+    s.unlock_employee(token, eid, "Test için kilit kaldırıldı")
+    panel.refresh()
+    assert "Kilitli" not in panel.people_table.item(0, 3).text()
+    window.heartbeat()
+    assert "Kilitli" not in window.grid.itemAt(0).widget().text()
+    panel.reject()
+    window.close()
+
+
+def test_admin_shows_turkish_money_actions_and_filters(qapp, system):
+    s, c, token, eid = system
+    import uuid
+    s.manual_session(token, eid, c.now - 40 * 86400, c.now - 40 * 86400 + 3600, 15000,
+                     "Eski kayıt eklendi", str(uuid.uuid4()))
+    s.manual_session(token, eid, c.now - 3600, c.now, 15000, "Yeni kayıt eklendi", str(uuid.uuid4()))
+    panel = AdminDialog(s, token)
+    assert panel.people_table.item(0, 2).text() == "150,00"
+    assert panel.session_table.rowCount() == 1  # default: last 30 days
+    assert panel.audit_table.item(0, 3).text() == "Kayıt eklendi"
+    assert "MB" in panel.backup_note.text()
+    new = s.add_employee(token, "Can Arslan", "573819", 12000)
+    panel.refresh()
+    assert panel.session_filter.employee.findData(new) > 0
+    panel.reject()

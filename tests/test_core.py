@@ -277,27 +277,41 @@ def test_sql_injection_stored_as_text(system):
 
 
 @pytest.mark.parametrize("jump", [-600, 3600])
-def test_clock_manipulation_blocks_until_admin_ack(system, jump):
+def test_clock_manipulation_flags_records_until_admin_review(system, jump):
     s, c, token, eid = system
     s.tick()
     c.now += jump
     assert s.tick()
-    with pytest.raises(AppError, match="Saat"):
-        s.attendance(eid, PIN, "start", None, uid())
-    assert s.db.meta("clock_alert")
+    # Staff can still work; the record is flagged instead of refused.
+    sid = s.attendance(eid, PIN, "start", None, uid())
+    row = next(r for r in s.sessions(token) if r["id"] == sid)
+    assert "saat" in row["review"].lower()
+    assert s.pending_reviews(token) == 1
     s.acknowledge_clock(token, "Bilgisayar saati kontrol edildi")
     assert not s.tick()
-    s.attendance(eid, PIN, "start", None, uid())
+    assert s.pending_reviews(token) == 1  # Acknowledging the clock is not reviewing records.
+    c.advance(60)
+    s.correct_session(token, sid, row["revision"], row["start_at"], None, "Saat kontrol edildi, kayıt doğru")
+    assert s.pending_reviews(token) == 0
+    assert not inspect_database(s.db.path)
 
 
 def test_restart_backwards_and_long_gap(system):
-    s, c, _, _ = system
+    s, c, token, eid = system
     s.tick()
     restarted = Service(s.db, FakeClock(c.now - 600))
     assert restarted.tick()
     restarted.acknowledge_clock(admin(restarted), "Saat düzeltildi kontrol edildi")
     long_gap = Service(s.db, FakeClock(c.now + 3 * 86400))
-    assert long_gap.tick()
+    # A closed day or holiday is only a notice: no alert, attendance unflagged.
+    assert not long_gap.tick()
+    alert, notice = long_gap.clock_status()
+    assert not alert and "uzun süre" in notice
+    sid = long_gap.attendance(eid, PIN, "start", None, uid())
+    token = admin(long_gap)
+    assert next(r for r in long_gap.sessions(token) if r["id"] == sid)["review"] == ""
+    long_gap.acknowledge_clock(token, "Uzun ara sonrası saat doğru")
+    assert long_gap.clock_status() == ("", "")
 
 
 def test_long_session_requires_manager(system):
