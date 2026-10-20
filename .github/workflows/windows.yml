@@ -39,15 +39,21 @@ jobs:
       - name: Smoke test packaged maintenance tool
         shell: pwsh
         run: |
+          function Fail($message, $output) {
+            $text = ($message + " | " + ($output -join " / ")) -replace "%", "%25"
+            Write-Host "::error title=Paket::$text"
+            exit 1
+          }
+          $exe = ".\dist\VardiyaTakip\VardiyaBakim.exe"
           $empty = Join-Path $env:RUNNER_TEMP "vardiya-empty"
-          & .\dist\VardiyaTakip\VardiyaBakim.exe --data-dir $empty --check
-          if ($LASTEXITCODE -ne 1) { throw "Boş klasör reddedilmedi: $LASTEXITCODE" }
+          $out = & $exe --data-dir $empty --check 2>&1
+          if ($LASTEXITCODE -ne 1) { Fail "Boş klasör reddedilmedi ($LASTEXITCODE)" $out }
           $data = Join-Path $env:RUNNER_TEMP "vardiya-data"
-          .\.venv\Scripts\python.exe scripts\make_sample_db.py $data
-          if ($LASTEXITCODE -ne 0) { throw "Örnek veritabanı oluşturulamadı" }
-          & .\dist\VardiyaTakip\VardiyaBakim.exe --data-dir $data --check
-          if ($LASTEXITCODE -ne 0) { throw "Paketlenmiş bütünlük denetimi başarısız: $LASTEXITCODE" }
-          Write-Host "::notice title=Paket::VardiyaBakim.exe gerçek bir veritabanını doğruladı ve boş klasörü reddetti."
+          $out = & .\.venv\Scripts\python.exe scripts\make_sample_db.py $data 2>&1
+          if ($LASTEXITCODE -ne 0) { Fail "Örnek veritabanı oluşturulamadı ($LASTEXITCODE)" $out }
+          $out = & $exe --data-dir $data --check 2>&1
+          if ($LASTEXITCODE -ne 0) { Fail "Paketlenmiş bütünlük denetimi başarısız ($LASTEXITCODE)" $out }
+          Write-Host "::notice title=Paket::VardiyaBakim.exe gerçek bir veritabanını doğruladı: $out"
           exit 0
       - name: Upload test results
         if: always()
