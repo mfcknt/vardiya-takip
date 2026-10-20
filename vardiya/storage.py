@@ -94,12 +94,14 @@ class FileLock:
     def __init__(self, directory: Path):
         directory.mkdir(parents=True, exist_ok=True)
         self.handle = (directory / "application.lock").open("a+b")
-        self.handle.seek(0)
-        if self.handle.read(1) == b"":
-            self.handle.write(b"0")
-            self.handle.flush()
-        self.handle.seek(0)
         try:
+            # On Windows, reading a byte another process has locked raises
+            # PermissionError, so every step of acquiring belongs in the try.
+            self.handle.seek(0)
+            if self.handle.read(1) == b"":
+                self.handle.write(b"0")
+                self.handle.flush()
+            self.handle.seek(0)
             if sys.platform == "win32":
                 import msvcrt
                 msvcrt.locking(self.handle.fileno(), msvcrt.LK_NBLCK, 1)

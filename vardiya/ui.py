@@ -953,8 +953,9 @@ class MainWindow(QMainWindow):
         self.warning.setVisible(bool(message))
         locked = any(lock_text(self.service, e.get("locked_until")) for e in getattr(self, "people", []))
         if locked or self.showing_locks:
-            # Re-render so lock countdowns update and disappear when they end.
-            self.showing_locks = locked
+            # Reload so countdowns update and an admin unlock shows immediately.
+            self.people = self.service.kiosk_employees()
+            self.showing_locks = any(lock_text(self.service, e.get("locked_until")) for e in self.people)
             self.render_people()
         try:
             automatic_backup(self.service.db, self.service.zone, self.verified_backups)
