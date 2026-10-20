@@ -1,4 +1,12 @@
-# Vardiya Takip · çalışan MVP
+# Vardiya Takip · Ó'is coffee & eatery
+
+![Ana ekran](docs/ekranlar/kiosk-dark.png)
+
+Personel, logodaki “Ó” gibi ince bir halkayla gösterilir: içerideyken halkanın şapkası yanar ve
+halka vardiya ilerledikçe (8 saatte) dolar. Çıkışı unutulan kayıt kesik bal sarısı, PIN’i kilitlenen
+personel gül kurusu halkayla görünür. Koyu (bordo gece) ve açık (krem kâğıt) tema Yönetici → Ayarlar’dan
+seçilir. Yazı tipleri Jost ve Quicksand (SIL Open Font License) uygulamaya gömülüdür.
+
 
 Tek bilgisayarda, internet gerektirmeden çalışan Türkçe restoran/kafe personel takibi.
 Python 3.12+, PySide6 ve SQLite. Fare/klavye ve büyük dokunmatik düğmelerle kullanım.

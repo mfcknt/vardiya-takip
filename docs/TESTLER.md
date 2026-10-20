@@ -65,7 +65,8 @@ birebir karşılığı değildir. SQLite FULL senkronizasyonu ve yedekler bu ris
 - Paketlenmiş bakım aracı bir deneme veritabanında bütünlük denetimini başarıyla çalıştırdı.
 - Paket, sistem saat dilimi arama yolu boşken (`PYTHONTZPATH=""`) Qt offscreen açılışıyla sınandı.
 - Ana ekran, PIN penceresi ve yönetici hak ediş ekranı örnek verilerle çizdirilip görsel incelendi.
-- Ekran görüntüleri: `personel-ekrani.png`, `pin-ekrani.png`, `yonetici-ekrani.png`.
+- Ekran görüntüleri: `docs/ekranlar/` (CI her `main` gönderiminde `scripts/screenshots.py` ile
+  Windows’ta yeniden üretir ve `ci-screenshots` dalına yükler).
 - Görsellerdeki kişiler ve tutarlar yalnızca örnektir; projede hazır personel veritabanı bulunmaz.
 
 ## Windows CI’ın bulduğu ve düzeltilen hatalar
