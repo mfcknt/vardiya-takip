@@ -30,7 +30,8 @@ Kayıt değişikliği, işlem geçmişi ve işlem kimliği aynı transaction iç
 Hata veya süreç sonlandırması commit öncesinde olursa birlikte geri alınırlar.
 Disk/hardware arızasına karşı mutlak garanti verilmez; FULL senkronizasyon ve yedek birlikte kullanılır.
 
-Kısmi unique index personel başına tek aktif açık kayıt zorlar. Uygulama ayrıca çakışan
+Kısmi unique index personel başına tek aktif açık kayıt zorlar. Bütünlük denetimindeki çakışma kontrolü,
+personel başına başlangıca göre sıralı tarama (pencere fonksiyonu) ile O(n log n) çalışır. Uygulama ayrıca çakışan
 zaman aralıklarını reddeder. İşlem UUID’si ve içerik parmak izi aynı isteğin tekrarını etkisizleştirir.
 Çıkışta beklenen açık kayıt kimliği doğrulanır; eski ekran yeni kaydı kapatamaz.
 Düzeltmelerde revision sayısı eski ekranın yeni değişiklik üzerine yazmasını engeller.
@@ -51,14 +52,16 @@ kişilere açılmamalıdır.
 Saat örnekleri ana ekranda 15 saniyede bir ve her personel işlemi öncesinde alınır.
 İşletme saat dilimi sabittir; işletim sistemi saat dilimi değişse de rapor sınırları değişmez.
 Kalıcı en son görülen saat, monotonik süre ve açılış aralığı karşılaştırılır.
-Şüphe kaydı kalıcıdır; yönetici gerekçeli onayına kadar personel giriş/çıkışı durur.
-Onay mevcut kayıt saatlerini otomatik değiştirmez; yönetici gerekirse kayıtları ayrıca düzeltir.
+Saat uyarısı (`meta.clock_alert`) kalıcıdır ancak işlemleri durdurmaz: uyarı sürerken açılan veya
+kapanan her kayıt `sessions.review` alanına uyarı metnini alır. Yönetici düzeltmesi/iptali bu alanı temizler.
+Uzun ara bildirimi (`meta.clock_notice`) yalnızca bilgidir. Onay iki durumu da temizler,
+mevcut kayıt saatlerini ve inceleme işaretlerini değiştirmez.
 
 ## Veri modeli
 
 `employees`: aktif/arşiv, güncel ücret. `credentials`: personel ve yönetici özetleri, kilitler.
 `rate_history`: her ücret değişikliğinin işlem zamanı ve yeni ücret.
-`sessions`: giriş/çıkış, kayıt ücreti, iptal ve revision.
+`sessions`: giriş/çıkış, kayıt ücreti, iptal, revision ve inceleme notu (`review`).
 `payments`: ödeme/avans ve iptal. `receipts`: tekrar işlem önleme.
 `audit`: kim/ne zaman/ne yaptı, önce/sonra, gerekçe, önceki özet ve SHA-256.
 `meta`: sabit saat dilimi, saat inceleme durumu, zaman sınırı.
@@ -73,7 +76,11 @@ Bütünlük denetimi `PRAGMA integrity_check`, `foreign_key_check`, zaman çakı
 personelin kimlik bilgisi varlığı, işlem zinciri ve son işlem görüntüsünün personel/çalışma/ödeme
 kayıtlarıyla tutarlılığını kontrol eder. Bu kontroller açılışta, elle ve yeni yedek üzerinde uygulanır.
 
-Yedek doğrudan SQLite Backup API ile geçici dosyaya yazılır. Denetlenip fsync edildikten sonra
+Şema sürümü 2’dir; sürüm 1 dosyaları açılmaz (gerçek veri öncesi değişiklik, migration yoktur).
+
+Yedek doğrudan SQLite Backup API ile geçici dosyaya yazılır. Dosyalar yazılabilir tanıtıcıyla fsync edilir
+(Windows `FlushFileBuffers` salt okunur tanıtıcıyı reddeder). Ana ekran günlük yedeği süreç başına bir kez
+doğrular; her 15 saniyede dosyanın tamamı yeniden denetlenmez. Denetlenip fsync edildikten sonra
 son adına taşınır; yanında SHA-256 dosyası üretilir. Var olan yedek üzerine yazılmaz.
 Otomatik yedekler aynı diskte olduğundan disk kaybına karşı ayrı diskte bir kopya gerekir.
 

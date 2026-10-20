@@ -1,3 +1,4 @@
+param([switch]$SkipTests)
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
 function Run-Step {
@@ -10,7 +11,7 @@ if (-not (Test-Path ".venv\Scripts\python.exe")) {
 }
 $ProjectPython = Join-Path $PWD ".venv\Scripts\python.exe"
 Run-Step $ProjectPython @("-m", "pip", "install", "-e", ".[test,build]")
-Run-Step $ProjectPython @("-m", "pytest", "-q")
+if (-not $SkipTests) { Run-Step $ProjectPython @("-m", "pytest", "-q") }
 Run-Step $ProjectPython @("-m", "PyInstaller", "--noconfirm", "--clean", "VardiyaTakip.spec")
 Copy-Item "README.md" "dist\VardiyaTakip\README.md"
 Copy-Item "docs" "dist\VardiyaTakip\docs" -Recurse -Force

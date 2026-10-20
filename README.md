@@ -35,7 +35,8 @@ Bu kaynak tesliminde Windows `.exe` dosyası yoktur; testler macOS üzerinde ça
 - Eksik kayıt ekleme, giriş–çıkış düzeltme, gerekçeli kayıt iptali; önce/sonra işlem geçmişi.
 - CSV özet, çok sayfalı Excel raporu ve işlem geçmişi CSV çıktısı.
 - Bütünlük ve işlem zinciri denetimi, doğrulanan yedek, yedekten kurtarma.
-- Saat geri alma/ileri sıçrama şüphesinde yönetici incelemesi; uzun açık kayıt uyarısı.
+- Saat geri alma/ileri sıçrama şüphesinde kayıtlar durmaz, yönetici incelemesine işaretlenir; uzun açık kayıt uyarısı.
+- Yönetici tablolarında tarih/personel filtresi; tutarlar Türkçe biçimde (1.440,00).
 
 ## Hesaplama kuralları
 
@@ -76,12 +77,15 @@ Klasörü ağ sürücüsüne, OneDrive/Dropbox benzeri eşitleme klasörüne koy
 İlk günlük kullanımda `backups/otomatik-YYYY-MM-DD.sqlite3`, düzgün kapanışta ayrı bir
 `kapanis-…sqlite3` yedeği üretilir. Günlük yedek o günün ilk anlık görüntüsüdür; gün boyunca
 yenilenmez. Uygulama günlerce açık kalırsa yeni günün ilk kontrolünde yeni yedek alınır.
-Yedekler otomatik silinmez. Önemli işlem sonrasında elle yedek alın ve bir kopyayı ayrı diske taşıyın.
+Saklama politikası: son 30 günlük otomatik yedek, her ayın ilk otomatik yedeği ve son 20 kapanış yedeği
+tutulur; daha eskileri yeni yedek alınırken silinir. Elle alınan yedeklere ve klasördeki başka dosyalara
+dokunulmaz. Önemli işlem sonrasında elle yedek alın ve bir kopyayı ayrı diske taşıyın.
 Uygulama kapatılırken yedek başarısızsa hata `application.log` dosyasına yazılır.
 
 Yönetici → Güvenlik / yedek → **Yedekten kurtar** seçeneği şifreyi yeniden ister.
 Güncel veriler `recovery/` klasöründe korunur. Kurtarma sonrasında uygulamayı yeniden açın;
-bilgisayar saatini ve açık kayıtları kontrol edip saat uyarısını gerekçeyle onaylayın.
+bilgisayar saatini ve açık kayıtları kontrol edip saat uyarısını gerekçeyle onaylayın;
+incelemeye işaretlenen kayıtları ayrıca kontrol edip kaydedin.
 Bozuk veritabanıyla açılışta da yedek seçme ekranı sunulur.
 Yedekte bulunmayan son işlemler kendiliğinden geri gelmez.
 Geri yüklemeden sonra yedek tarihindeki yönetici şifresi ve personel PIN’leri geçerli olur.
@@ -90,8 +94,10 @@ Geri yüklemeden sonra yedek tarihindeki yönetici şifresi ve personel PIN’le
 
 PIN ve yönetici şifreleri ayrı rastgele tuzla PBKDF2-HMAC-SHA256, 600.000 tur kullanılarak
 saklanır. PIN tam 6 ASCII rakamdır; aynı rakamdan oluşan ve bazı kolay sıralı PIN’ler reddedilir.
-5 hatalı girişten sonra kimlik 5 dakika kilitlenir; kilit yeniden başlatmada korunur.
-Yönetici gerekli olduğunda personelin PIN’ini değiştirerek kilidini de kaldırabilir.
+Personel PIN’inde 5. hatalı denemeden sonra kilit kademeli uzar: 30 sn, 1 dk, 2 dk, 4 dk, en çok 5 dk.
+Sayaç yalnızca doğru PIN, yönetici kilit kaldırması veya PIN değişikliğiyle sıfırlanır.
+Kilit ana ekranda personel kartında görünür; Yönetici → Personel → **Kilidi kaldır** gerekçeyle açar.
+Yönetici şifresi 5 hatalı denemede 5 dakika kilitlenir. Kilitler yeniden başlatmada korunur.
 
 SQLite dosyası ve yedekler **şifreli değildir**. Dosyaları okuyabilen bir kişi personel ve ücret
 verilerini okuyabilir; işletim sistemi yöneticisi uygulama kontrollerini aşabilir.
@@ -100,10 +106,14 @@ Windows hesap/klasör izinleri ve disk şifrelemesi bu sınırın dışındaki k
 Uygulama bir Windows kiosk kilidi değildir; işletim sistemine erişimi engellemez.
 
 Çevrimdışı uygulama gerçek saati bağımsız olarak doğrulayamaz. Saat denetimi şüphe tespit eder:
-5 saniyeden fazla geri gidiş, çalışma sırasında monotonik süreyle 120 saniyeden fazla fark,
-yeniden açılışta 36 saatten uzun ara. Uzun ara ve uyku da inceleme uyarısı üretebilir.
+5 saniyeden fazla geri gidiş veya çalışma sırasında monotonik süreyle 120 saniyeden fazla fark
+**saat uyarısı** üretir. Uyarı varken personel giriş/çıkış yapmaya devam eder; bu kayıtlar
+“inceleme bekliyor” olarak işaretlenir, raporlarda ve Giriş / çıkış sekmesinde görünür.
+Yönetici kaydın saatlerini kontrol edip kaydettiğinde inceleme kalkar.
+Yeniden açılışta 36 saatten uzun ara (kapalı gün, bayram) yalnızca yöneticiye **bildirim** olur, kayıt işaretlemez.
+Saat geri alındığı için çıkış saati girişten önce görünürse çıkışı yönetici kaydeder.
 Uygulama kapalıyken küçük ileri saat değişiklikleri güvenilir şekilde ayırt edilemez.
-Yönetici saati ve açık kayıtları kontrol etmeden uyarıyı onaylamamalıdır.
+Yönetici saati ve işaretli kayıtları kontrol etmeden uyarıyı onaylamamalıdır.
 
 İşlem geçmişi uygulama içinde değiştirilemez. SHA-256 zinciri ve kayıtlarla karşılaştırma
 beklenmedik değişiklikleri saptar; dosyanın tamamına erişen saldırgana karşı haricî imzalı,

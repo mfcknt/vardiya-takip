@@ -83,7 +83,7 @@ Son kullanıcı için EXE klasör paketi daha az kurulum adımı gerektirir.
 - Disk doluluğu, yazma izni ve UPS/elektrik kesintisi koşullarını gerçek donanımda değerlendirin.
 
 Programı normal Windows hesabıyla açın. Verilerin bulunduğu kullanıcı hesabını değiştirmeyin.
-Yeni sürüm yüklemeden önce yönetici panelinden yedek alın. Bu MVP yalnızca şema sürümü 1’i açar;
+Yeni sürüm yüklemeden önce yönetici panelinden yedek alın. Bu sürüm yalnızca şema sürümü 2’yi açar;
 gelecekteki şema yükseltmeleri için ayrıca migration ve geri dönüş planı gerekir.
 
 ## Lisanslar

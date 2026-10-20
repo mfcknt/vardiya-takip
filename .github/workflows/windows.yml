@@ -15,9 +15,38 @@ jobs:
         with:
           python-version: "3.12"
           architecture: x64
-      - name: Test and build
+      - name: Install
         shell: pwsh
-        run: ./scripts/build-windows.ps1
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python.exe -m pip install -e ".[test,build]"
+      - name: Test
+        id: test
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe -m pytest -q --junitxml=test-results.xml
+        env:
+          QT_QPA_PLATFORM: offscreen
+      - name: Report test results
+        if: always()
+        shell: pwsh
+        run: .\.venv\Scripts\python.exe scripts\ci_annotate.py test-results.xml
+      - name: Package
+        shell: pwsh
+        run: ./scripts/build-windows.ps1 -SkipTests
+      - name: Smoke test packaged maintenance tool
+        shell: pwsh
+        run: |
+          $data = Join-Path $env:RUNNER_TEMP "vardiya-smoke"
+          & .\dist\VardiyaTakip\VardiyaBakim.exe --data-dir $data --check
+          if ($LASTEXITCODE -ne 1) { throw "Boş klasör denetimi beklenmeyen sonuç: $LASTEXITCODE" }
+          Write-Host "::notice title=Paket::VardiyaBakim.exe çalıştı (boş veri klasörü doğru şekilde reddedildi)."
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: test-results.xml
+          if-no-files-found: ignore
       - name: Upload package
         uses: actions/upload-artifact@v4
         with:

@@ -42,11 +42,11 @@ def reason_text(reason):
     return reason
 
 
-def lock_message(seconds):
+def lock_message(seconds, staff=True):
     minutes, rest = divmod(max(1, int(seconds)), 60)
     wait = f"{minutes} dk {rest} sn" if minutes else f"{rest} sn"
-    return (f"Çok sayıda hatalı deneme. Yeniden denemek için {wait} bekleyin. "
-            "Yönetici kilidi kaldırabilir.")
+    return (f"Çok sayıda hatalı deneme; giriş kilidi {wait} sonra açılır."
+            + (" Yönetici kilidi kaldırabilir." if staff else ""))
 
 
 class Service:
@@ -125,7 +125,7 @@ class Service:
             if row is None or len(secret) > 128:
                 error = "Kimlik bilgisi doğrulanamadı."
             elif row["locked_until"] > now:
-                error = lock_message(row["locked_until"] - now)
+                error = lock_message(row["locked_until"] - now, subject != "admin")
             elif not verify_secret(secret, row["secret"]):
                 failures = row["failures"] + 1
                 if subject == "admin":
@@ -144,7 +144,7 @@ class Service:
                     self.db.audit(now, "system", "AUTH_LOCK", subject,
                                   after={"failures": failures, "seconds": seconds},
                                   reason=f"{failures} hatalı deneme")
-                    error = lock_message(seconds)
+                    error = lock_message(seconds, subject != "admin")
                 else:
                     error = "Kimlik bilgisi doğrulanamadı."
             else:
