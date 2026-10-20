@@ -2,93 +2,74 @@ import logging
 import sqlite3
 import time
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from functools import wraps
 from pathlib import Path
 
-from datetime import timedelta
-
-from PySide6.QtCore import QDate, QDateTime, QEvent, QTime, Qt, QTimer
-from PySide6.QtGui import QFont, QRegularExpressionValidator
-from PySide6.QtCore import QRegularExpression
+from PySide6.QtCore import QDate, QDateTime, QEvent, QRegularExpression, QSize, Qt, QTime, QTimer
+from PySide6.QtGui import QColor, QIcon, QPalette, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDateEdit, QDateTimeEdit, QDialog,
-    QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QMainWindow, QMessageBox, QPushButton,
-    QScrollArea, QScroller, QSizePolicy, QTabWidget, QTableWidget, QTableWidgetItem,
+    QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
+    QHeaderView, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPushButton,
+    QScrollArea, QScroller, QStackedWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 
+from . import theme as th
 from .backup import automatic_backup, backup_usage, create_backup, restore_database
 from .formatting import cents, tl
 from .reports import build_report, duration, export_audit, export_report
 from .security import AppError
 from .storage import inspect_database
+from .widgets import (
+    Backdrop, HeatmapWidget, PersonRing, RingWidget, StatTile, TimelineWidget, WelcomeDialog,
+    app_icon, avatar_pixmap, current, font, load_fonts, logo_pixmap, set_current,
+)
 
-STYLE = """
-QWidget { font-family: "Segoe UI", "Arial"; font-size: 16px; color: #183d3c; }
-QMainWindow, QDialog { background: #f3f5ef; }
-QLabel#title { font-size: 30px; font-weight: 700; }
-QLabel#subtitle { color: #5a706b; font-size: 16px; }
-QLabel#warning { background: #fff0d5; color: #804311; padding: 14px; border-radius: 10px; }
-QLabel#success { background: #dceee2; color: #19543c; padding: 14px; border-radius: 10px; }
-QPushButton { min-height: 48px; padding: 5px 16px; border-radius: 9px;
-              border: 1px solid #cbd8d1; background: #ffffff; font-weight: 600; }
-QPushButton:hover { background: #e3eee5; border-color: #548d76; }
-QPushButton:pressed { background: #c8dfd1; }
-QPushButton:disabled { color: #899792; background: #e8ece7; }
-QPushButton#primary { color: white; background: #176b52; border: none; }
-QPushButton#primary:hover { background: #12553f; }
-QPushButton#danger { color: #8f362a; background: #f9e8e1; }
-QPushButton#person { text-align: left; font-size: 20px; padding: 20px; min-height: 94px; }
-QPushButton#personForgotten { text-align: left; font-size: 20px; padding: 20px;
-                        min-height: 94px; background: #fde3c4; border-color: #c46a1b; color: #6b3409; }
-QPushButton#personOpen { text-align: left; font-size: 20px; padding: 20px;
-                        min-height: 94px; background: #dceee2; border-color: #68a180; }
-QLineEdit, QComboBox, QDateEdit, QDateTimeEdit { background: white; border: 1px solid #cbd8d1;
-    padding: 9px; min-height: 32px; border-radius: 6px; selection-background-color: #176b52; }
-QTableWidget { background: white; border: 1px solid #d8e0d8; gridline-color: #e4eae4;
-               selection-background-color: #d6eade; selection-color: #173d3c; }
-QHeaderView::section { background: #e9eee7; padding: 12px; border: 0; font-weight: 600; }
-QTabBar::tab { padding: 14px 18px; background: #e9eee7; }
-QTabBar::tab:selected { background: #176b52; color: white; }
-QScrollBar:vertical { width: 22px; }
-QCheckBox { min-height: 42px; color: #183d3c; background: transparent; }
-QTabWidget::pane { background: #f3f5ef; border: 1px solid #d8e0d8; }
-QTabWidget > QWidget, QScrollArea, QScrollArea > QWidget > QWidget { background: #f3f5ef; }
-QCheckBox::indicator { width: 24px; height: 24px; }
-"""
+STYLE = th.stylesheet(th.tokens(th.DEFAULT_THEME))
 
 
-def apply_light_theme(app):
-    """Always use the app's own light design, even in macOS/Windows dark mode.
-
-    The stylesheet only colors some widgets; without a fixed light palette the
-    rest (tab pages, checkbox labels) followed the OS dark scheme and became
-    unreadable (dark text on dark gray).
-    """
-    from PySide6.QtGui import QColor, QPalette
+def apply_theme(app, name=th.DEFAULT_THEME):
+    """Apply one Ó'is theme to the whole application, independent of the OS theme."""
+    load_fonts()
+    t = th.tokens(name)
+    set_current(t)
     try:
-        app.styleHints().setColorScheme(Qt.ColorScheme.Light)
+        app.styleHints().setColorScheme(Qt.ColorScheme.Dark if t["name"] == "dark" else Qt.ColorScheme.Light)
     except AttributeError:
         pass  # Qt < 6.8
     palette = QPalette()
-    colors = {
-        QPalette.ColorRole.Window: "#f3f5ef", QPalette.ColorRole.WindowText: "#183d3c",
-        QPalette.ColorRole.Base: "#ffffff", QPalette.ColorRole.AlternateBase: "#f4f7f2",
-        QPalette.ColorRole.Text: "#183d3c", QPalette.ColorRole.Button: "#ffffff",
-        QPalette.ColorRole.ButtonText: "#183d3c", QPalette.ColorRole.Highlight: "#176b52",
-        QPalette.ColorRole.HighlightedText: "#ffffff", QPalette.ColorRole.ToolTipBase: "#ffffff",
-        QPalette.ColorRole.ToolTipText: "#183d3c", QPalette.ColorRole.PlaceholderText: "#6f817c",
-        QPalette.ColorRole.Link: "#176b52", QPalette.ColorRole.BrightText: "#ffffff",
+    roles = {
+        QPalette.ColorRole.Window: t["bg"], QPalette.ColorRole.WindowText: t["text"],
+        QPalette.ColorRole.Base: t["input"], QPalette.ColorRole.AlternateBase: t["surface"],
+        QPalette.ColorRole.Text: t["text"], QPalette.ColorRole.Button: t["surface"],
+        QPalette.ColorRole.ButtonText: t["text"], QPalette.ColorRole.Highlight: t["selection"],
+        QPalette.ColorRole.HighlightedText: t["text"], QPalette.ColorRole.ToolTipBase: t["surface"],
+        QPalette.ColorRole.ToolTipText: t["text"], QPalette.ColorRole.PlaceholderText: t["faint"],
+        QPalette.ColorRole.Link: t["ring"], QPalette.ColorRole.BrightText: t["text"],
     }
-    for role, color in colors.items():
-        palette.setColor(role, QColor(color))
+    for role, value in roles.items():
+        palette.setColor(role, QColor(value))
     for role in (QPalette.ColorRole.WindowText, QPalette.ColorRole.Text, QPalette.ColorRole.ButtonText):
-        palette.setColor(QPalette.ColorGroup.Disabled, role, QColor("#899792"))
+        palette.setColor(QPalette.ColorGroup.Disabled, role, QColor(t["faint"]))
     app.setPalette(palette)
     app.setStyle("Fusion")
-    app.setStyleSheet(STYLE)
+    app.setStyleSheet(th.stylesheet(t))
+    app.setFont(font("Quicksand", 15))
+    app.setWindowIcon(app_icon())
+    for widget in app.topLevelWidgets():
+        try:
+            if hasattr(widget, "retheme"):
+                widget.retheme()
+            widget.update()
+        except RuntimeError:
+            pass  # a window that is being destroyed
+
+
+def apply_light_theme(app):
+    """Backwards-compatible name: the light Ó'is theme."""
+    apply_theme(app, "light")
 
 
 def guarded(fn):
@@ -108,12 +89,15 @@ def guarded(fn):
     return run
 
 
-def button(text, callback, primary=False, danger=False):
+def button(text, callback, primary=False, danger=False, name=None):
     b = QPushButton(text)
-    if primary:
+    if name:
+        b.setObjectName(name)
+    elif primary:
         b.setObjectName("primary")
     elif danger:
         b.setObjectName("danger")
+    b.setCursor(Qt.CursorShape.PointingHandCursor)
     b.clicked.connect(callback)
     return b
 
@@ -141,7 +125,7 @@ ACTION_NAMES = {
     "EMPLOYEE_UPDATE": "Personel düzenlendi", "START": "İşe başladı", "END": "İşi bitirdi",
     "SESSION_MANUAL": "Kayıt eklendi", "SESSION_CORRECT": "Kayıt düzeltildi",
     "SESSION_VOID": "Kayıt iptal", "PAYMENT_ADD": "Ödeme eklendi", "PAYMENT_VOID": "Ödeme iptal",
-    "RESTORE": "Yedekten kurtarma", "SESSION_FLAG": "Çıkış yapılmamış", "SETTING_CHANGE": "Ayar değişti",
+    "RESTORE": "Yedekten kurtarma", "SESSION_FLAG": "Çıkış unutuldu", "SETTING_CHANGE": "Ayar değişti",
 }
 AUDIT_SCREEN_LIMIT = 1000
 
@@ -150,8 +134,12 @@ def action_name(code):
     return ACTION_NAMES.get(code, code)
 
 
+def lock_seconds(service, locked_until):
+    return max(0, (locked_until or 0) - service.clock.wall())
+
+
 def lock_text(service, locked_until):
-    remaining = (locked_until or 0) - service.clock.wall()
+    remaining = lock_seconds(service, locked_until)
     if remaining <= 0:
         return ""
     minutes, seconds = divmod(remaining, 60)
@@ -160,24 +148,57 @@ def lock_text(service, locked_until):
 
 def make_table(headers):
     t = QTableWidget(0, len(headers))
-    t.setHorizontalHeaderLabels(headers)
+    t.setHorizontalHeaderLabels([th.tr_lower(h) for h in headers])
     t.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
     t.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
     t.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+    t.setShowGrid(False)
+    t.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+    t.setIconSize(QSize(30, 30))
     t.verticalHeader().setVisible(False)
-    t.verticalHeader().setDefaultSectionSize(48)
-    t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-    t.horizontalHeader().setStretchLastSection(True)
-    t.setAlternatingRowColors(True)
+    t.verticalHeader().setDefaultSectionSize(54)
+    header = t.horizontalHeader()
+    header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+    header.setStretchLastSection(True)
+    header.setDefaultAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+    header.setHighlightSections(False)
+    t.setVerticalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
     QScroller.grabGesture(t.viewport(), QScroller.ScrollerGestureType.TouchGesture)
     return t
 
 
-def fill_table(table, rows):
+def fill_table(table, rows, avatars=None, avatar_col=1):
+    """rows: list of cell values; avatars: optional [(letters, state)] per row for `avatar_col`."""
     table.setRowCount(len(rows))
+    ratio = table.devicePixelRatioF() if hasattr(table, "devicePixelRatioF") else 1.0
     for y, row in enumerate(rows):
         for x, value in enumerate(row):
-            table.setItem(y, x, QTableWidgetItem(str(value)))
+            item = QTableWidgetItem(str(value))
+            if avatars and x == avatar_col:
+                letters, state = avatars[y]
+                item.setIcon(QIcon(avatar_pixmap(letters, state, 30, ratio)))
+            table.setItem(y, x, item)
+
+
+def page_header(title, subtitle=""):
+    box = QVBoxLayout()
+    box.setSpacing(2)
+    head = label(title, "title")
+    box.addWidget(head)
+    sub = label(subtitle, "subtitle")
+    box.addWidget(sub)
+    return box, head, sub
+
+
+def panel(title=None):
+    frame = QFrame()
+    frame.setObjectName("panel")
+    box = QVBoxLayout(frame)
+    box.setContentsMargins(20, 16, 20, 18)
+    box.setSpacing(10)
+    if title:
+        box.addWidget(label(title, "eyebrow"))
+    return frame, box
 
 
 class FormDialog(QDialog):
@@ -249,38 +270,66 @@ class PinDialog(QDialog):
         self.service, self.employee = service, employee
         self.action = "end" if employee["session_id"] else "start"
         self.request_id = str(uuid.uuid4())
+        self.result_sid = None
         self.setWindowTitle("Personel doğrulama")
-        self.setFixedWidth(430)
-        box = QVBoxLayout(self)
-        box.addWidget(label(employee["name"], "title"))
-        box.addWidget(label(f"Personel no: {employee['id']} · 6 haneli PIN’inizi girin", "subtitle"))
+        self.setFixedWidth(470)
         self.forgotten = bool(employee["session_id"]) and service.past_day_boundary(employee["start_at"])
+        box = QVBoxLayout(self)
+        box.setContentsMargins(34, 26, 34, 26)
+        box.setSpacing(10)
+        ring = RingWidget(48)
         if self.forgotten:
-            box.addWidget(label("Giriş: " + service.display_time(employee["start_at"]) +
-                                "\nBu kayıt önceki iş gününden açık kalmış; çıkış yapılmamış. "
+            state, progress = "forgotten", 0.0
+        elif employee["session_id"]:
+            state = "in"
+            progress = (service.clock.wall() - employee["start_at"]) / th.SHIFT_GOAL_SECONDS
+        else:
+            state, progress = "out", 0.0
+        ring.set_ring(state, progress, th.initials(employee["name"]))
+        box.addWidget(ring, 0, Qt.AlignmentFlag.AlignHCenter)
+        name = label(employee["name"], "title")
+        name.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        box.addWidget(name)
+        if self.forgotten:
+            hint = "giriş " + service.display_time(employee["start_at"])[:16]
+        elif employee["session_id"]:
+            local = datetime.fromtimestamp(employee["start_at"], service.zone)
+            hint = f"{local:%H:%M}'dan beri içeride · pin'ini gir"
+        else:
+            hint = "6 haneli pin'ini gir"
+        sub = label(hint, "subtitle")
+        sub.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+        box.addWidget(sub)
+        if self.forgotten:
+            box.addWidget(label("Bu kayıt önceki iş gününden açık kalmış; çıkış yapılmamış. "
                                 "Şimdi kapatabilirsin, kayıt yöneticiye işaretlenir ve gerçek çıkış "
                                 "saatini yönetici girer. Ardından yeni giriş yapabilirsin.", "warning"))
-        elif employee["session_id"]:
-            box.addWidget(label("Giriş: " + service.display_time(employee["start_at"]), "success"))
         self.pin = secret_edit(6)
+        self.pin.setObjectName("pin")
         self.pin.setValidator(QRegularExpressionValidator(QRegularExpression("[0-9]{0,6}")))
         self.pin.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.pin.setFont(QFont("Segoe UI", 28))
         self.pin.setAccessibleName("Altı haneli personel PIN")
+        self.pin.setPlaceholderText("······")
         box.addWidget(self.pin)
         grid = QGridLayout()
+        grid.setHorizontalSpacing(18)
+        grid.setVerticalSpacing(12)
         for i, text in enumerate(["1", "2", "3", "4", "5", "6", "7", "8", "9", "Temizle", "0", "Sil"]):
-            b = button(text, lambda checked=False, t=text: self.press(t))
-            b.setMinimumHeight(62)
-            grid.addWidget(b, i // 3, i % 3)
+            caption = th.tr_lower(text) if len(text) > 1 else text
+            b = button(caption, lambda checked=False, t=text: self.press(t),
+                       name="keyText" if len(text) > 1 else "key")
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            grid.addWidget(b, i // 3, i % 3, Qt.AlignmentFlag.AlignCenter)
         box.addLayout(grid)
         self.error = label("", "warning")
         self.error.hide()
         box.addWidget(self.error)
-        self.confirm_button = button("İŞİ BİTİR" if self.action == "end" else "İŞE BAŞLA",
+        self.confirm_button = button("işi bitir" if self.action == "end" else "işe başla",
                                      self.confirm, True)
+        self.confirm_button.setMinimumHeight(52)
+        box.addSpacing(6)
         box.addWidget(self.confirm_button)
-        box.addWidget(button("Vazgeç", self.reject))
+        box.addWidget(button("vazgeç", self.reject, name="ghost"), 0, Qt.AlignmentFlag.AlignHCenter)
         self.pin.returnPressed.connect(self.confirm)
         # Short-lived PIN screen, even if nobody presses a button.
         QTimer.singleShot(60_000, self, self.reject)
@@ -296,8 +345,8 @@ class PinDialog(QDialog):
     def confirm(self):
         self.confirm_button.setEnabled(False)
         try:
-            self.service.attendance(self.employee["id"], self.pin.text(), self.action,
-                                    self.employee["session_id"], self.request_id)
+            self.result_sid = self.service.attendance(self.employee["id"], self.pin.text(), self.action,
+                                                      self.employee["session_id"], self.request_id)
             self.pin.clear()
             self.accept()
         except (AppError, sqlite3.Error, OSError) as exc:
@@ -527,33 +576,63 @@ class FilterBar(QWidget):
 
 
 class AdminDialog(QDialog):
+    PAGES = ["bugün", "personel", "giriş / çıkış", "hak ediş", "ödemeler", "ayarlar"]
+
     def __init__(self, service, token, parent=None):
         super().__init__(parent)
         self.service, self.token = service, token
         self.last_input = time.monotonic()
         self.setWindowTitle("Yönetici paneli")
-        self.resize(1160, 780)
-        self.setMinimumSize(880, 620)
-        box = QVBoxLayout(self)
-        top = QHBoxLayout()
-        top.addWidget(label("Yönetici paneli", "title"))
-        top.addStretch()
-        top.addWidget(button("Oturumu kapat", self.accept))
-        box.addLayout(top)
-        box.addWidget(label("Ön hak ediş • Resmî bordro değildir • 5 dakika hareketsizlikte kilitlenir",
-                            "subtitle"))
-        self.tabs = QTabWidget()
-        box.addWidget(self.tabs)
+        self.resize(1240, 820)
+        self.setMinimumSize(980, 660)
+        outer = QHBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        nav_pane = QFrame()
+        nav_pane.setObjectName("navPane")
+        nav_pane.setFixedWidth(232)
+        nav_box = QVBoxLayout(nav_pane)
+        nav_box.setContentsMargins(18, 26, 18, 20)
+        nav_box.setSpacing(6)
+        self.logo = QLabel()
+        nav_box.addWidget(self.logo, 0, Qt.AlignmentFlag.AlignLeft)
+        nav_box.addWidget(label("yönetici", "eyebrow"))
+        nav_box.addSpacing(14)
+        self.nav = QListWidget()
+        self.nav.setObjectName("nav")
+        self.nav.addItems(self.PAGES)
+        self.nav.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        nav_box.addWidget(self.nav, 1)
+        nav_box.addWidget(button("oturumu kapat", self.accept))
+        nav_box.addWidget(label("5 dakika hareketsizlikte kapanır · ön hak ediş, resmî bordro değildir",
+                                "faint"))
+        outer.addWidget(nav_pane)
+
+        self.pages = QStackedWidget()
+        self.tabs = self.pages  # older name kept for callers/tests
+        outer.addWidget(self.pages, 1)
+        self.today_page()
         self.people_tab()
         self.sessions_tab()
         self.reports_tab()
         self.payments_tab()
         self.security_tab()
+        self.nav.currentRowChanged.connect(self.pages.setCurrentIndex)
+        self.nav.setCurrentRow(0)
+        self.retheme()
         self.refresh()
         QApplication.instance().installEventFilter(self)
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.check_timeout)
         self.timer.start(1000)
+
+    def retheme(self):
+        t = current()
+        self.logo.setPixmap(logo_pixmap(t["text"], 58, self.devicePixelRatioF()))
+        for chip, name in getattr(self, "theme_chips", []):
+            chip.setChecked(self.service.theme == name)
+        self.update()
 
     def eventFilter(self, watched, event):
         if event.type() in (QEvent.Type.MouseButtonPress, QEvent.Type.KeyPress,
@@ -576,28 +655,65 @@ class AdminDialog(QDialog):
         self.service.logout(self.token)
         super().done(result)
 
-    def tab(self, title):
+    def tab(self, title, subtitle="", scroll=False):
         page = QWidget()
         layout = QVBoxLayout(page)
-        self.tabs.addTab(page, title)
+        layout.setContentsMargins(34, 28, 34, 24)
+        layout.setSpacing(14)
+        head, _, sub = page_header(title, subtitle)
+        layout.addLayout(head)
+        if scroll:
+            area = QScrollArea()
+            area.setWidgetResizable(True)
+            area.setFrameShape(QFrame.Shape.NoFrame)
+            area.setWidget(page)
+            self.pages.addWidget(area)
+        else:
+            self.pages.addWidget(page)
+        layout.subtitle_label = sub
         return layout
 
     def toolbar(self, layout, actions):
         row = QHBoxLayout()
+        row.setSpacing(10)
         for title, callback in actions:
             row.addWidget(button(title, callback))
         row.addStretch()
         layout.addLayout(row)
 
+    # --- pages ---------------------------------------------------------------
+
+    def today_page(self):
+        box = self.tab("bugün", scroll=True)
+        self.today_subtitle = box.subtitle_label
+        tiles = QHBoxLayout()
+        tiles.setSpacing(12)
+        self.tile_inside = StatTile("şu an içeride")
+        self.tile_hours = StatTile("bugünkü toplam")
+        self.tile_month = StatTile("bu ay ön hak ediş")
+        self.tile_review = StatTile("inceleme bekleyen")
+        for tile in (self.tile_inside, self.tile_hours, self.tile_month, self.tile_review):
+            tiles.addWidget(tile, 1)
+        box.addLayout(tiles)
+        frame, inner = panel("vardiya çizelgesi")
+        self.timeline = TimelineWidget()
+        inner.addWidget(self.timeline)
+        box.addWidget(frame)
+        frame, inner = panel("son 7 gün · saat")
+        self.heatmap = HeatmapWidget()
+        inner.addWidget(self.heatmap)
+        box.addWidget(frame)
+        box.addStretch()
+
     def people_tab(self):
-        box = self.tab("Personel")
+        box = self.tab("personel", "ekip, ücretler ve pin kilitleri")
         self.toolbar(box, [("Personel ekle", self.add_employee), ("Seçileni düzenle", self.edit_employee),
                            ("Kilidi kaldır", self.unlock_employee)])
         self.people_table = make_table(["No", "Ad Soyad", "Saatlik TL", "Durum"])
         box.addWidget(self.people_table)
 
     def sessions_tab(self):
-        box = self.tab("Giriş / çıkış")
+        box = self.tab("giriş / çıkış", "kayıtlar, düzeltmeler ve incelemeler")
         self.session_filter = FilterBar(self.service, self.token, self.refresh, review_toggle=True)
         box.addWidget(self.session_filter)
         self.review_note = label("", "warning")
@@ -609,8 +725,9 @@ class AdminDialog(QDialog):
         box.addWidget(self.session_table)
 
     def reports_tab(self):
-        box = self.tab("Hak ediş")
+        box = self.tab("hak ediş", "ön hak ediş · resmî bordro değildir")
         dates = QHBoxLayout()
+        dates.setSpacing(10)
         today = self.service.business_day(self.service.clock.wall())
         self.first = QDateEdit(QDate(today.year, today.month, 1))
         self.last = QDateEdit(QDate(today.year, today.month, today.day))
@@ -619,9 +736,10 @@ class AdminDialog(QDialog):
             w.setDisplayFormat("dd.MM.yyyy")
         dates.addWidget(self.first)
         dates.addWidget(self.last)
-        dates.addWidget(button("Bugün", self.today))
-        dates.addWidget(button("Bu ay", self.this_month))
-        dates.addWidget(button("Hesapla", self.calculate, True))
+        dates.addWidget(button("bugün", self.today, name="chip"))
+        dates.addWidget(button("bu ay", self.this_month, name="chip"))
+        dates.addStretch()
+        dates.addWidget(button("hesapla", self.calculate, True))
         box.addLayout(dates)
         self.report_note = label("Açık kayıtlar geçici tahmindir ve bakiyeye eklenmez.", "warning")
         box.addWidget(self.report_note)
@@ -633,7 +751,7 @@ class AdminDialog(QDialog):
         self.report = None
 
     def payments_tab(self):
-        box = self.tab("Ödeme / avans")
+        box = self.tab("ödemeler", "ödeme ve avanslar")
         self.payment_filter = FilterBar(self.service, self.token, self.refresh)
         box.addWidget(self.payment_filter)
         self.toolbar(box, [("Ödeme / avans ekle", self.add_payment), ("Seçileni iptal et", self.void_payment)])
@@ -641,23 +759,52 @@ class AdminDialog(QDialog):
         box.addWidget(self.payment_table)
 
     def security_tab(self):
-        box = self.tab("Güvenlik / yedek")
+        box = self.tab("ayarlar", "görünüm, saat, iş günü, güvenlik ve yedekler", scroll=True)
+        frame, inner = panel("görünüm")
+        row = QHBoxLayout()
+        self.theme_chips = []
+        for name, caption in (("dark", "koyu · bordo gece"), ("light", "açık · krem kâğıt")):
+            chip = button(caption, lambda checked=False, n=name: self.change_theme(n), name="chip")
+            chip.setCheckable(True)
+            self.theme_chips.append((chip, name))
+            row.addWidget(chip)
+        row.addStretch()
+        inner.addLayout(row)
+        box.addWidget(frame)
+
+        frame, inner = panel("saat ve iş günü")
         self.clock_note = label("", "warning")
-        box.addWidget(self.clock_note)
-        self.toolbar(box, [("Saati kontrol ettim", self.ack_clock), ("Şifre değiştir", self.change_password)])
+        inner.addWidget(self.clock_note)
+        self.toolbar(inner, [("Saati kontrol ettim", self.ack_clock),
+                             ("İş günü başlangıcını değiştir", self.change_day_start)])
         self.day_note = label("", "subtitle")
-        box.addWidget(self.day_note)
-        self.toolbar(box, [("İş günü başlangıcını değiştir", self.change_day_start)])
-        self.toolbar(box, [("Bütünlüğü denetle", self.check_integrity), ("Yedek al", self.backup),
-                           ("Yedekten kurtar", self.restore)])
-        box.addWidget(label("Veri klasörü: " + str(self.service.db.path.parent), "subtitle"))
+        inner.addWidget(self.day_note)
+        box.addWidget(frame)
+
+        frame, inner = panel("güvenlik ve yedek")
+        self.toolbar(inner, [("Şifre değiştir", self.change_password), ("Bütünlüğü denetle", self.check_integrity),
+                             ("Yedek al", self.backup), ("Yedekten kurtar", self.restore)])
+        inner.addWidget(label("Veri klasörü: " + str(self.service.db.path.parent), "faint"))
         self.backup_note = label("", "subtitle")
-        box.addWidget(self.backup_note)
-        self.audit_note = label("", "subtitle")
-        box.addWidget(self.audit_note)
+        inner.addWidget(self.backup_note)
+        box.addWidget(frame)
+
+        frame, inner = panel("işlem geçmişi")
+        self.audit_note = label("", "faint")
+        inner.addWidget(self.audit_note)
         self.audit_table = make_table(["No", "Tarih", "Yapan", "İşlem", "Kayıt", "Gerekçe"])
-        box.addWidget(self.audit_table)
-        self.toolbar(box, [("Geçmiş ayrıntısı", self.audit_detail), ("Geçmişi CSV indir", self.audit_export)])
+        self.audit_table.setMinimumHeight(360)
+        inner.addWidget(self.audit_table)
+        self.toolbar(inner, [("Geçmiş ayrıntısı", self.audit_detail), ("Geçmişi CSV indir", self.audit_export)])
+        box.addWidget(frame)
+
+    # --- data ----------------------------------------------------------------
+
+    @guarded
+    def change_theme(self, name):
+        self.service.set_theme(self.token, name)
+        apply_theme(QApplication.instance(), name)
+        self.retheme()
 
     @guarded
     def refresh(self):
@@ -667,7 +814,9 @@ class AdminDialog(QDialog):
         fill_table(self.people_table, [[e["id"], e["name"], tl(e["rate_cents"]),
                                        " · ".join(x for x in ("Aktif" if e["active"] else "Arşiv",
                                                               lock_text(self.service, e["locked_until"])) if x)]
-                                      for e in self.people])
+                                      for e in self.people],
+                   [(th.initials(e["name"]), "locked" if lock_seconds(self.service, e["locked_until"])
+                     else "out") for e in self.people])
         f = self.session_filter.values()
         self.session_rows = self.service.sessions(self.token, f["eid"], f["since"], f["until"],
                                                   self.session_filter.review_only())
@@ -675,7 +824,10 @@ class AdminDialog(QDialog):
                                         self.service.display_time(s["end_at"]), tl(s["rate_cents"]),
                                         "İptal" if s["voided"] else "Açık" if s["end_at"] is None else "Kapalı",
                                         "" if s["voided"] else s["review"]]
-                                       for s in self.session_rows])
+                                       for s in self.session_rows],
+                   [(th.initials(s["name"]), "forgotten" if s["review"] and not s["voided"]
+                     else "in" if s["end_at"] is None and not s["voided"] else "out")
+                    for s in self.session_rows])
         pending = self.service.pending_reviews(self.token)
         self.review_note.setText(f"İnceleme bekleyen {pending} kayıt var. “Yalnızca inceleme bekleyenler” "
                                  "ile listeleyip saatleri kontrol ederek kaydedin.")
@@ -684,7 +836,8 @@ class AdminDialog(QDialog):
         self.payment_rows = self.service.payments(self.token, f["eid"], f["since"], f["until"])
         fill_table(self.payment_table, [[p["id"], p["name"], self.service.display_time(p["paid_at"]),
                                         p["kind"], tl(p["amount_cents"]), p["note"],
-                                        "İptal" if p["voided"] else "Geçerli"] for p in self.payment_rows])
+                                        "İptal" if p["voided"] else "Geçerli"] for p in self.payment_rows],
+                   [(th.initials(p["name"]), "out") for p in self.payment_rows])
         self.audit = self.service.audit_rows(self.token, AUDIT_SCREEN_LIMIT)
         fill_table(self.audit_table, [[a["id"], self.service.display_time(a["at"]), a["actor"],
                                       action_name(a["action"]), a["entity"], a["reason"]] for a in self.audit])
@@ -700,6 +853,73 @@ class AdminDialog(QDialog):
                                  "Son 30 gün, her ayın ilk yedeği ve son 20 kapanış yedeği saklanır; "
                                  "elle alınan yedekler silinmez.")
         self.calculate()
+        self.refresh_today(pending)
+
+    def refresh_today(self, pending):
+        s, now = self.service, self.service.clock.wall()
+        day = s.business_day(now)
+        since, until = s.day_bounds(day, day)
+        self.today_subtitle.setText(f"{th.DAYS[day.weekday()]}, {day.day} {th.MONTHS[day.month - 1]} · "
+                                    f"iş günü {s.day_start_hour:02d}:00’da başlar")
+        kiosk = {e["id"]: e for e in s.kiosk_employees()}
+        inside = [e for e in kiosk.values() if e["session_id"]]
+        today_report = build_report(s, self.token, day, day)
+        month_report = build_report(s, self.token, day.replace(day=1), day)
+        self.tile_inside.set_value(str(len(inside)))
+        self.tile_hours.set_value(th.hours_text(sum(r["seconds"] + r["open_seconds"]
+                                                    for r in today_report["summary"])))
+        self.tile_month.set_value(tl(sum(r["cents"] for r in month_report["summary"])) + " TL")
+        self.tile_review.set_value(str(pending), warn=bool(pending))
+
+        labels = th.short_names(self.people)
+        sessions = [r for r in s.sessions(self.token, since=since, until=until) if not r["voided"]]
+        by_person = {}
+        for r in sessions:
+            by_person.setdefault(r["employee_id"], []).append(r)
+        rows, lo, hi = [], since + 4 * 3600, since + 12 * 3600
+        for eid, items in sorted(by_person.items(), key=lambda kv: min(x["start_at"] for x in kv[1])):
+            segments = []
+            for r in items:
+                end = r["end_at"] if r["end_at"] is not None else now
+                kind = "review" if r["review"] else "now" if r["end_at"] is None else "done"
+                segments.append((max(r["start_at"], since), min(end, until), kind))
+                lo, hi = min(lo, max(r["start_at"], since)), max(hi, min(end, until))
+            k = kiosk.get(eid)
+            if k and k["session_id"] and s.past_day_boundary(k["start_at"]):
+                state = "forgotten"
+            elif k and k["session_id"]:
+                state = "in"
+            else:
+                state = "out"
+            name = labels.get(eid) or th.tr_lower(items[0]["name"])
+            rows.append((name, th.initials(items[0]["name"]), state, segments))
+        hi = max(hi, min(now, until))
+        lo -= lo % 3600
+        hi += (-hi) % 3600
+        ticks = []
+        tick = lo
+        step = 3600 if hi - lo <= 12 * 3600 else 7200
+        while tick <= hi:
+            ticks.append((tick, f"{datetime.fromtimestamp(tick, s.zone):%H}"))
+            tick += step
+        self.timeline.set_data(rows, lo, hi, ticks, now)
+
+        first = day - timedelta(days=6)
+        week = build_report(s, self.token, first, day)
+        values, flags = {}, set()
+        for r in week["days"]:
+            col = (date.fromisoformat(r["day"]) - first).days
+            values[(r["employee_id"], col)] = values.get((r["employee_id"], col), 0) + \
+                (r["seconds"] + r["open_seconds"]) / 3600
+        for r in week["sessions"]:
+            if r.get("review"):
+                col = (s.business_day(r["start_at"]) - first).days
+                if 0 <= col < 7:
+                    flags.add((r["employee_id"], col))
+        names = [(e["id"], labels.get(e["id"], th.tr_lower(e["name"]))) for e in self.people
+                 if e["active"] or any(key[0] == e["id"] for key in values)]
+        days = [th.SHORT_DAYS[(first + timedelta(days=i)).weekday()] for i in range(7)]
+        self.heatmap.set_data(names, days, values, flags)
 
     def selected(self, table, rows):
         index = table.currentRow()
@@ -838,6 +1058,7 @@ class AdminDialog(QDialog):
         if isinstance(self.parent(), MainWindow):
             self.parent().restoring = True
             self.parent().timer.stop()
+            self.parent().clock_timer.stop()
         self.service.db.close()
         try:
             archive = restore_database(Path(path), db_path, dialog.result_value)
@@ -912,58 +1133,127 @@ class AdminDialog(QDialog):
 
 
 class MainWindow(QMainWindow):
+    TILE_W = 168
+
     def __init__(self, service):
         super().__init__()
         self.service = service
         self.restoring = False
         self.verified_backups = set()
         self.card_signature = None
-        self.setWindowTitle("Vardiya Takip")
-        self.resize(1120, 780)
-        self.setMinimumSize(760, 580)
-        root = QWidget()
+        self.columns = 0
+        self.today_seconds = {}
+        self.setWindowTitle("Ó'is · Vardiya")
+        self.resize(1180, 800)
+        self.setMinimumSize(780, 600)
+        root = Backdrop()
         self.setCentralWidget(root)
         box = QVBoxLayout(root)
-        box.setContentsMargins(30, 24, 30, 20)
-        box.setSpacing(18)
+        box.setContentsMargins(44, 30, 44, 22)
+        box.setSpacing(12)
+
         top = QHBoxLayout()
-        titles = QVBoxLayout()
-        titles.addWidget(label("Vardiya Takip", "title"))
-        titles.addWidget(label("İşe başlamak veya işi bitirmek için adınızı seçin.", "subtitle"))
-        top.addLayout(titles)
+        left = QVBoxLayout()
+        left.setSpacing(0)
+        self.greeting = label("", "subtitle")
+        self.clock_label = QLabel("")
+        self.clock_label.setObjectName("display")
+        left.addWidget(self.greeting)
+        left.addWidget(self.clock_label)
+        top.addLayout(left)
         top.addStretch()
-        top.addWidget(button("Yönetici", self.admin))
+        right = QVBoxLayout()
+        right.setSpacing(4)
+        self.logo = QLabel()
+        self.logo.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop)
+        right.addWidget(self.logo, 0, Qt.AlignmentFlag.AlignRight)
+        right.addWidget(button("yönetici", self.admin, name="ghost"), 0, Qt.AlignmentFlag.AlignRight)
+        right.addStretch()
+        top.addLayout(right)
         box.addLayout(top)
-        self.clock_label = label("", "subtitle")
-        box.addWidget(self.clock_label)
+
         self.warning = label("", "warning")
+        self.warning.hide()
         box.addWidget(self.warning)
-        self.status = label("Hazır • Tüm kayıtlar bu bilgisayarda tutulur.", "success")
-        box.addWidget(self.status)
+
+        row = QHBoxLayout()
+        self.prompt = label("adına dokun", "subtitle")
+        row.addWidget(self.prompt)
+        row.addStretch()
         self.search = QLineEdit()
-        self.search.setPlaceholderText("Personel ara…")
+        self.search.setObjectName("search")
+        self.search.setPlaceholderText("ara")
+        self.search.setFixedWidth(240)
+        self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self.render_people)
-        box.addWidget(self.search)
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        row.addWidget(self.search)
+        box.addLayout(row)
+
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setStyleSheet("QScrollArea, QScrollArea > QWidget > QWidget { background: transparent; }")
         self.cards = QWidget()
+        self.cards.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)
         self.grid = QGridLayout(self.cards)
-        self.grid.setAlignment(Qt.AlignmentFlag.AlignTop)
-        self.grid.setSpacing(16)
-        scroll.setWidget(self.cards)
-        QScroller.grabGesture(scroll.viewport(), QScroller.ScrollerGestureType.TouchGesture)
-        box.addWidget(scroll, 1)
-        box.addWidget(label("ÇEVRİMDIŞI  •  Personel işlemleri için 6 haneli PIN",
-                            "subtitle"))
+        self.grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.grid.setHorizontalSpacing(8)
+        self.grid.setVerticalSpacing(14)
+        self.grid.setContentsMargins(0, 8, 0, 8)
+        self.scroll.setWidget(self.cards)
+        QScroller.grabGesture(self.scroll.viewport(), QScroller.ScrollerGestureType.TouchGesture)
+        box.addWidget(self.scroll, 1)
+
+        bottom = QHBoxLayout()
+        self.status = label("çevrimdışı · tüm kayıtlar bu bilgisayarda", "status")
+        bottom.addWidget(self.status, 1)
+        bottom.addWidget(label("6 haneli pin ile", "faint"))
+        box.addLayout(bottom)
+
+        self.retheme()
         self.refresh()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.heartbeat)
         self.timer.start(15_000)
+        self.clock_timer = QTimer(self)
+        self.clock_timer.timeout.connect(self.update_clock)
+        self.clock_timer.start(1000)
+
+    # --- appearance ----------------------------------------------------------
+
+    def retheme(self):
+        apply = QApplication.instance()
+        if apply is not None and current()["name"] != self.service.theme:
+            apply_theme(apply, self.service.theme)
+            return  # apply_theme calls retheme again
+        t = current()
+        self.logo.setPixmap(logo_pixmap(t["text"], 92, self.devicePixelRatioF()))
+        self.card_signature = None
+        if hasattr(self, "people"):
+            self.render_people()
+        self.centralWidget().update()
+
+    def update_clock(self):
+        now = self.service.clock.wall()
+        local = datetime.fromtimestamp(now, self.service.zone)
+        self.clock_label.setText(f"{local:%H:%M}")
+        self.greeting.setText(th.greeting(local, self.service.business_day(now)))
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.column_count() != self.columns and hasattr(self, "people"):
+            self.render_people()
+
+    def column_count(self):
+        width = self.scroll.viewport().width() if hasattr(self, "scroll") else self.width()
+        return max(2, width // self.TILE_W)
+
+    # --- people --------------------------------------------------------------
 
     @guarded
     def refresh(self):
         self.people = self.service.kiosk_employees()
+        self.today_seconds = self.service.kiosk_today_seconds()
         self.render_people()
         self.heartbeat()
 
@@ -972,43 +1262,52 @@ class MainWindow(QMainWindow):
             item = self.grid.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        query = self.search.text().casefold()
-        people = [e for e in getattr(self, "people", []) if query in e["name"].casefold()]
+        query = th.tr_lower(self.search.text())
+        people = [e for e in getattr(self, "people", []) if query in th.tr_lower(e["name"])]
+        names = th.short_names(getattr(self, "people", []))
         self.card_signature = self.cards_state()
+        self.columns = self.column_count()
         for i, employee in enumerate(people):
-            state, style = self.card_state(employee)
-            text = employee["name"] + f"  ·  {employee['id']}\n" + state
-            b = button(text, lambda checked=False, e=employee: self.attendance(e))
-            b.setObjectName(style)
-            b.setAccessibleName(text.replace("\n", ". "))
-            b.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-            b.ensurePolished()
-            short_name = b.fontMetrics().elidedText(
-                employee["name"] + f" · {employee['id']}", Qt.TextElideMode.ElideRight,
-                max(180, (self.width() - 108) // 2 - 45))
-            b.setText(short_name + "\n" + state)
-            b.setToolTip(employee["name"] + f" · Personel no: {employee['id']}")
-            self.grid.addWidget(b, i // 2, i % 2)
+            state, progress, subtitle, description = self.card_state(employee)
+            ring = PersonRing()
+            ring.set_person(state, progress, th.initials(employee["name"]),
+                            names.get(employee["id"], th.tr_lower(employee["name"])), subtitle, description)
+            ring.setToolTip(employee["name"] + f" · personel no {employee['id']}")
+            ring.clicked.connect(lambda checked=False, e=employee: self.attendance(e))
+            self.grid.addWidget(ring, i // self.columns, i % self.columns)
         if not people:
-            self.grid.addWidget(label("Personel bulunamadı. İlk personeli Yönetici panelinden ekleyin.",
-                                      "subtitle"), 0, 0)
-        self.grid.setColumnStretch(0, 1)
-        self.grid.setColumnStretch(1, 1)
+            self.grid.addWidget(label("Personel bulunamadı. İlk personeli yönetici panelinden ekleyin."
+                                      if not query else "Personel bulunamadı.", "subtitle"), 0, 0, 1, 4)
 
     def card_state(self, employee):
-        """(second line of the card, style name) for one kiosk card."""
+        """(ring state, progress 0..1, subtitle, accessible description) for one person."""
+        now = self.service.clock.wall()
         opened = employee["session_id"] is not None
+        locked = lock_seconds(self.service, employee.get("locked_until"))
+        progress = 0.0
         if opened and self.service.past_day_boundary(employee["start_at"]):
-            state, style = "Çıkış yapılmamış  →  İşi bitir", "personForgotten"
+            state, subtitle, words = "forgotten", "çıkış unutuldu", "Çıkış unutuldu"
         elif opened:
-            state, style = "Çalışıyor  →  İşi bitir", "personOpen"
+            elapsed = now - employee["start_at"]
+            progress = elapsed / th.SHIFT_GOAL_SECONDS
+            state, subtitle = "in", f"içeride · {th.clock_text(elapsed)}"
+            words = f"İçeride {th.clock_text(elapsed)}"
         else:
-            state, style = "Hazır  →  İşe başla", "person"
-        locked = lock_text(self.service, employee.get("locked_until"))
-        return (locked + "  ·  " + state if locked else state), style
+            worked = self.today_seconds.get(employee["id"], 0)
+            state = "out"
+            subtitle = f"bugün {th.hours_text(worked)}" if worked >= 60 else "dışarıda"
+            words = "Dışarıda"
+        if locked:
+            minutes, seconds = divmod(locked, 60)
+            wait = f"{minutes} dk {seconds} sn" if minutes else f"{seconds} sn"
+            state, subtitle = "locked", f"kilitli · {wait}"
+            words = f"Kilitli · {wait} · {words}"
+        description = f"{employee['name']} · {employee['id']} — {words}"
+        return state, progress, subtitle, description
 
     def cards_state(self):
-        return tuple((e["id"], *self.card_state(e)) for e in getattr(self, "people", []))
+        return tuple((e["id"], *self.card_state(e)[:1], self.card_state(e)[2])
+                     for e in getattr(self, "people", []))
 
     @guarded
     def heartbeat(self):
@@ -1016,28 +1315,28 @@ class MainWindow(QMainWindow):
             return
         alert = self.service.tick()
         notice = self.service.clock_status()[1]
-        self.clock_label.setText(self.service.display_time(self.service.clock.wall()) +
-                                 "  ·  " + str(self.service.zone))
-        long_open = any(e["start_at"] is not None and self.service.clock.wall() - e["start_at"] > 86400
-                        for e in getattr(self, "people", []))
+        self.update_clock()
+        people = getattr(self, "people", [])
+        now = self.service.clock.wall()
+        long_open = any(e["start_at"] is not None and now - e["start_at"] > 86400 for e in people)
         lines = []
         if alert:
             # Staff keep working; records are flagged for the admin.
             lines.append(alert + " Giriş/çıkışlar yönetici incelemesi için işaretleniyor.")
         elif notice:
             lines.append("Yönetici: " + notice)
-        forgotten = sum(1 for e in getattr(self, "people", [])
-                        if e["session_id"] and self.service.past_day_boundary(e["start_at"]))
+        forgotten = sum(1 for e in people if e["session_id"] and self.service.past_day_boundary(e["start_at"]))
         if forgotten:
-            lines.append(f"Çıkışı yapılmamış {forgotten} kayıt var. Yönetici gerçek çıkış saatini girmeli.")
+            lines.append(f"Çıkışı unutulan {forgotten} kayıt var. Yönetici gerçek çıkış saatini girmeli.")
         if long_open:
             lines.append("24 saati aşan açık kayıt var. Yönetici kontrol etmeli.")
         message = "\n".join(lines)
         self.warning.setText(message)
         self.warning.setVisible(bool(message))
-        # Reload cheaply; re-render only when a card would look different
-        # (lock countdown, admin unlock, crossing the business-day boundary).
+        # Reload cheaply; re-render only when a ring would look different
+        # (minute counters, lock countdown, admin unlock, day boundary).
         self.people = self.service.kiosk_employees()
+        self.today_seconds = self.service.kiosk_today_seconds()
         if self.cards_state() != self.card_signature:
             self.render_people()
         try:
@@ -1051,13 +1350,28 @@ class MainWindow(QMainWindow):
     def attendance(self, employee):
         dialog = PinDialog(self.service, employee, self)
         if dialog.exec():
-            text = "Çıkış kaydedildi." if employee["session_id"] else "Giriş kaydedildi."
-            if dialog.forgotten:
-                text += " Gerçek çıkış saatini yönetici girecek."
-            elif self.service.clock_status()[0]:
-                text += " Kayıt yönetici incelemesine işaretlendi."
-            self.status.setText(text)
+            self.welcome(employee, dialog)
         self.refresh()
+
+    def welcome(self, employee, dialog):
+        first = th.short_names(self.people).get(employee["id"], th.tr_lower(employee["name"]))
+        summary = self.service.staff_summary(employee["id"], dialog.result_sid) if dialog.result_sid else {}
+        month = th.hours_text(summary.get("month_seconds", 0))
+        now = datetime.fromtimestamp(self.service.clock.wall(), self.service.zone)
+        if dialog.action == "start":
+            state, title = "in", f"hoş geldin, {first}"
+            subtitle, note = f"giriş {now:%H:%M} · bu ay {month}", "şapka yandı, iyi servisler"
+            status = f"{first} giriş yaptı · {now:%H:%M}"
+        else:
+            state, title = "out", f"görüşürüz, {first}"
+            subtitle = f"bugün {th.hours_text(summary.get('session_seconds', 0))} · bu ay {month}"
+            note, status = "eline sağlık", f"{first} çıkış yaptı · {now:%H:%M}"
+        if dialog.forgotten:
+            note = "gerçek çıkış saatini yönetici girecek"
+        elif self.service.clock_status()[0]:
+            note = "kayıt yönetici incelemesine işaretlendi"
+        self.status.setText(status)
+        WelcomeDialog(th.initials(employee["name"]), state, title, subtitle, note, self).exec()
 
     @guarded
     def admin(self):

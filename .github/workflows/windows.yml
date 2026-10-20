@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
 permissions:
-  contents: read
+  contents: write   # only used to publish review screenshots to the ci-screenshots branch
 jobs:
   windows:
     runs-on: windows-latest
@@ -33,6 +33,31 @@ jobs:
         if: always()
         shell: pwsh
         run: .\.venv\Scripts\python.exe scripts\ci_annotate.py test-results.xml
+      - name: Screenshots
+        if: always()
+        shell: pwsh
+        run: |
+          $out = & .\.venv\Scripts\python.exe scripts\screenshots.py screenshots 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            $text = (($out | Select-Object -Last 25) -join " / ") -replace "%", "%25"
+            Write-Host "::error title=Ekran görüntüleri::$text"
+            exit 1
+          }
+          Write-Host "::notice title=Ekran görüntüleri::$((Get-ChildItem screenshots).Count) dosya"
+          exit 0
+        env:
+          QT_QPA_PLATFORM: offscreen
+      - name: Publish screenshots
+        if: always() && github.event_name == 'push' && hashFiles('screenshots/*.png') != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cd screenshots
+          git init -q -b ci-screenshots
+          git add .
+          git -c user.name=ci -c user.email=ci@users.noreply.github.com commit -qm "Ekran görüntüleri ${GITHUB_SHA}"
+          git push -qf "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" ci-screenshots
       - name: Package
         shell: pwsh
         run: ./scripts/build-windows.ps1 -SkipTests

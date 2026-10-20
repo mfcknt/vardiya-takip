@@ -125,6 +125,62 @@ class Service:
             self.db.audit(self.clock.wall(), "admin", "SETTING_CHANGE", "day_start_hour",
                           before={"day_start_hour": before}, after={"day_start_hour": hour}, reason=reason)
 
+    @property
+    def theme(self):
+        from .theme import DEFAULT_THEME, THEMES
+        value = self.db.meta("theme", DEFAULT_THEME)
+        return value if value in THEMES else DEFAULT_THEME
+
+    def set_theme(self, token, name):
+        from .theme import THEMES
+        self.require_admin(token)
+        if name not in THEMES:
+            raise AppError("Bilinmeyen tema.")
+        with self.db.transaction():
+            before = self.theme
+            if before == name:
+                return
+            self.db.set_meta("theme", name)
+            self.db.audit(self.clock.wall(), "admin", "SETTING_CHANGE", "theme",
+                          before={"theme": before}, after={"theme": name}, reason="Tema değiştirildi")
+
+    def _worked_seconds(self, eid, since, until, now):
+        """Seconds of non-voided work for one employee inside [since, until)."""
+        total = 0
+        for start, end in self.db.conn.execute(
+                """SELECT start_at, end_at FROM sessions WHERE employee_id=? AND voided=0
+                   AND start_at < ? AND COALESCE(end_at, ?) > ?""", (eid, until, now, since)):
+            total += max(0, min(end if end is not None else now, until, now) - max(start, since))
+        return total
+
+    def kiosk_today_seconds(self):
+        """{employee id: seconds worked today (business day, closed and open)} for the kiosk."""
+        now = self.clock.wall()
+        day = self.business_day(now)
+        since, until = self.day_bounds(day, day)
+        rows = self.db.conn.execute(
+            """SELECT employee_id, start_at, end_at FROM sessions WHERE voided=0
+               AND start_at < ? AND COALESCE(end_at, ?) > ?""", (until, now, since)).fetchall()
+        totals = {}
+        for eid, start, end in rows:
+            totals[eid] = totals.get(eid, 0) + max(
+                0, min(end if end is not None else now, until, now) - max(start, since))
+        return totals
+
+    def staff_summary(self, eid, sid):
+        """Shown only right after a successful PIN: this record and this month."""
+        now = self.clock.wall()
+        row = self.db.conn.execute("SELECT start_at, end_at FROM sessions WHERE id=? AND employee_id=?",
+                                   (sid, eid)).fetchone()
+        day = self.business_day(now)
+        since, _ = self.day_bounds(day.replace(day=1), day)
+        _, until = self.day_bounds(day, day)
+        return {
+            "session_seconds": (row["end_at"] or now) - row["start_at"] if row else 0,
+            "start_at": row["start_at"] if row else None,
+            "month_seconds": self._worked_seconds(eid, since, until, now),
+        }
+
     def _flag_forgotten(self, now):
         """Inside a transaction: flag open records left past the business-day boundary."""
         for row in self.db.conn.execute(

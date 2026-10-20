@@ -48,7 +48,7 @@ def system(tmp_path):
 @pytest.fixture(scope="session")
 def qapp():
     from PySide6.QtWidgets import QApplication
-    from vardiya.ui import apply_light_theme
+    from vardiya.ui import apply_theme
     app = QApplication.instance() or QApplication([])
-    apply_light_theme(app)
+    apply_theme(app)
     yield app

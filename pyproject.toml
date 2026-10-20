@@ -19,5 +19,8 @@ vardiya-takip = "vardiya.__main__:main"
 [tool.setuptools.packages.find]
 include = ["vardiya*"]
 
+[tool.setuptools.package-data]
+vardiya = ["assets/*.png", "assets/*.ico", "assets/fonts/*.ttf", "assets/fonts/*.txt"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

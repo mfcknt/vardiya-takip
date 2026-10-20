@@ -5,7 +5,7 @@ a = Analysis(
     ["launcher.py"],
     pathex=["."],
     binaries=[],
-    datas=collect_data_files("tzdata"),
+    datas=collect_data_files("tzdata") + [("vardiya/assets", "vardiya/assets")],
     hiddenimports=["openpyxl", *collect_submodules("tzdata")],
     hookspath=[],
     runtime_hooks=[],
@@ -14,8 +14,8 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 app = EXE(pyz, a.scripts, [], exclude_binaries=True, name="VardiyaTakip",
-          debug=False, strip=False, upx=False, console=False)
+          debug=False, strip=False, upx=False, console=False, icon="vardiya/assets/icon.ico")
 maintenance = EXE(pyz, a.scripts, [], exclude_binaries=True, name="VardiyaBakim",
-                  debug=False, strip=False, upx=False, console=True)
+                  debug=False, strip=False, upx=False, console=True, icon="vardiya/assets/icon.ico")
 coll = COLLECT(app, maintenance, a.binaries, a.datas,
                strip=False, upx=False, name="VardiyaTakip")

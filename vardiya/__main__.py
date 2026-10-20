@@ -64,10 +64,11 @@ def main():
             print(f"Kurtarma tamamlandı. Önceki veriler: {archive}")
             return 0
         from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
-        from .ui import MainWindow, PasswordDialog, apply_light_theme
+        from .ui import MainWindow, PasswordDialog, apply_theme
         app = QApplication(sys.argv[:1])
         app.setApplicationName("VardiyaTakip")
-        apply_light_theme(app)
+        app.setApplicationDisplayName("Ó'is · Vardiya")
+        apply_theme(app)
         try:
             db = Database(db_path)
         except (AppError, sqlite3.Error, OSError) as exc:
@@ -88,6 +89,7 @@ def main():
                 return 1
             db = Database(db_path)
         service = Service(db)
+        apply_theme(app, service.theme)
         if not service.configured:
             dialog = PasswordDialog("İlk kurulum · Yönetici şifresi", setup=True, submit=service.setup)
             if not dialog.exec():
