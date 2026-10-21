@@ -321,3 +321,14 @@ def test_closed_main_window_stops_its_timers(qapp, system):
     assert window.timer.isActive() and window.clock_timer.isActive()
     window.close()
     assert not window.timer.isActive() and not window.clock_timer.isActive()
+
+
+def test_clock_and_greeting_visible_immediately(qapp, system):
+    s, _, _, _ = system
+    window = MainWindow(s)
+    window.show()
+    assert window.clock_label.text() == "12:00"
+    assert "salı" in window.greeting.text()
+    window.close()
+    window.show()
+    assert window.timer.isActive() and window.clock_timer.isActive()

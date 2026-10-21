@@ -1237,6 +1237,10 @@ class MainWindow(QMainWindow):
         super().showEvent(event)
         if current()["name"] != getattr(self, "_themed", None):
             self.retheme()
+        if hasattr(self, "clock_timer") and not self.restoring:
+            self.clock_timer.start(1000)     # restart after a close/show cycle
+            self.timer.start(15_000)
+        self.update_clock()
 
     def retheme(self):
         apply = QApplication.instance()
@@ -1259,7 +1263,7 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def update_clock(self):
-        if not self.isVisible() or self.restoring:
+        if self.restoring:
             return
         now = self.service.clock.wall()
         local = datetime.fromtimestamp(now, self.service.zone)
