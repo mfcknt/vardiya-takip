@@ -125,6 +125,9 @@ QLabel {{ background: transparent; }}
 QLabel#display {{ font-family: "Jost"; font-weight: 200; font-size: 68px; letter-spacing: 3px; }}
 QLabel#title {{ font-family: "Jost"; font-weight: 300; font-size: 30px; letter-spacing: 1px; }}
 QLabel#h2 {{ font-family: "Jost"; font-weight: 400; font-size: 20px; }}
+QLabel#longcode {{ font-family: "Jost"; font-size: 22px; letter-spacing: 1px; padding: 6px 0; }}
+QLabel#recoverykey {{ font-family: "Jost"; font-size: 30px; letter-spacing: 2px; padding: 10px 0;
+  color: {t['text']}; }}
 QLabel#subtitle {{ color: {t['muted']}; font-size: 14px; }}
 QLabel#faint {{ color: {t['faint']}; font-size: 13px; }}
 QLabel#eyebrow {{ color: {t['muted']}; font-size: 12px; letter-spacing: 2px; }}

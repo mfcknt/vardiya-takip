@@ -45,6 +45,11 @@ Beş dakika servis işlemi yapılmadığında token geçersiz olur. Ekran ayrıc
 etkileşimi olmayınca tüm yönetici alt pencerelerini kapatır.
 PIN ekranı açıldıktan 60 saniye sonra kapanır. Başarılı/başarısız işlemde PIN alanı temizlenir.
 
+Kurtarma anahtarı 20 rakamdır (kiosk tuş takımıyla girilebilsin diye), `credentials` tablosunda
+`recovery` olarak PBKDF2 ile saklanır, yönetici kilidiyle aynı kademeyle kilitlenir ve tek kullanımlıktır:
+yeni yönetici kodu kaydedilirken anahtar da yenilenir (`ADMIN_RECOVERED`). Anahtarı olmayan eski kurulumlar
+yönetici notlarında uyarılır.
+
 Hatalı deneme sayısı ve kilit bitişi SQLite’ta tutulur; hata mesajı verilmeden önce commit edilir.
 Kimlik doğrulama günlüklerinde şifre veya PIN bulunmaz. Dosya sisteminde hata günlükleri yetkisiz
 kişilere açılmamalıdır.

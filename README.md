@@ -35,11 +35,14 @@ Not: Depo sayfasındaki **Code → Download ZIP** yalnızca kaynak kodu indirir;
 2. Python 3.12 x64 kurulu olsun. İlk kurulum için internet gerekir.
 3. `Kurulum.cmd` dosyasını açın. Bağımlılıkları kurar ve testleri çalıştırır.
 4. `Baslat.cmd` dosyasını açın.
-5. İlk açılışta 4 haneli bir yönetici şifresi belirleyin (personel PIN’lerinden farklı).
+5. İlk açılışta 4 haneli bir yönetici şifresi belirleyin. Ardından gösterilen 20 rakamlık
+   **kurtarma anahtarını** yazdırın veya kâğıda yazıp kasada saklayın.
 6. Yönetici → Personel → Personel ekle: ad soyad, 4 haneli PIN, saatlik TL ücretini girin.
 7. Ana ekranda personelin halkasına dokunun ve PIN’i girin; 4. rakamda işlem kendiliğinden yapılır.
 
-Varsayılan şifre, önceden tanımlı personel veya gizli şifre sıfırlama yolu yoktur.
+Varsayılan şifre, önceden tanımlı personel veya gizli şifre sıfırlama yolu yoktur. Yönetici şifresi
+unutulursa tek yol kâğıttaki kurtarma anahtarıdır: yönetici → **kodu unuttum**. Kullanılan anahtar
+geçersiz olur ve yenisi gösterilir. Ayarlar → **Kurtarma anahtarı oluştur** eski anahtarı iptal eder.
 Kurulumdan sonraki normal kullanım internetsizdir. Bulut bağlantısı, telemetri veya sunucu yoktur.
 
 Hazır Windows paketi üretmek için [Windows dağıtım yönergesini](docs/WINDOWS.md) izleyin.
@@ -129,7 +132,9 @@ Geri yüklemeden sonra yedek tarihindeki yönetici şifresi ve personel PIN’le
 
 PIN ve yönetici şifreleri ayrı rastgele tuzla PBKDF2-HMAC-SHA256, 600.000 tur kullanılarak
 saklanır. Personel PIN’i ve yönetici şifresi tam 4 rakamdır; 1111, 1234/4321, 1212 ve 1122 gibi tekrarlı
-ya da sıralı şifreler reddedilir. Bir personel PIN’i yönetici şifresiyle aynı olamaz.
+ya da sıralı şifreler reddedilir. Aynı kod birden çok kişide olabilir; aksi hâlde “bu kod kullanılıyor”
+mesajı başkasının kodunu ele verirdi. Kurtarma anahtarı da aynı şekilde saklanır ve yönetici şifresiyle
+aynı kademeli kilide tabidir.
 Personel PIN’inde 5. hatalı denemeden sonra kilit kademeli uzar: 30 sn, 1 dk, 2 dk, 4 dk, en çok 5 dk.
 Sayaç yalnızca doğru PIN, yönetici kilit kaldırması veya PIN değişikliğiyle sıfırlanır.
 Kilit ana ekranda personel kartında görünür; Yönetici → Personel → **Kilidi kaldır** gerekçeyle açar.

@@ -25,6 +25,8 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
 - Staff PIN **and** admin code are 4 digits. Weak codes (1111, 1234/4321, 1212, 1122) rejected.
   Duplicate codes are allowed on purpose: rejecting "same as admin/other staff" would leak that code.
   Never reveal anything about other people's codes in any message.
+- Forgotten admin code: 20-digit paper recovery key (digits so the kiosk keypad works), single use,
+  replaced on use; Ayarlar can issue a new one. No other reset path.
 - Locks escalate: staff 30 s → 5 min; admin 5 → 15 → 30 min → 1 h per attempt.
 - Business day starts 05:00 (configurable 0–12); the café opens 09:00 and closes ~01:00.
   Open records past the boundary are flagged "çıkış unutuldu"; the app never invents an exit time.
@@ -55,6 +57,6 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
 
 ## Open items discussed but not done
 
-Off-machine backup (USB reminder/copy), admin recovery key,
+Off-machine backup (USB reminder/copy),
 period closing (lock paid months; also speeds up reports), compressed backups, background
 heavy work, staff self-view, payment receipts, code signing.

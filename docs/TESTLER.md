@@ -45,6 +45,7 @@ python -m pytest -q
 | Güncelleme (CI) | Önceki yayımlanmış sürüm kurulur, eski veri eklenir, yeni sürüm üstüne kurulur; veri değişmeden kalır, `--upgrade` ve `--check` geçer |
 | Sürüm arşivi | Kurulum, zip ve kaynak kodu SHA-256 ile doğrulanarak arşivlenir; yanlış indirme klasör bırakmaz; arşiv üzerine yazılmaz; bozulan/eksik dosya bulunur; sertifikasız Python’da sistem curl’ü |
 | Sistem sağlığı | Yedek yok/eski, az disk, günlük bütünlük denetimi; kiosk sayısı ve yönetici sayfası; günlük dosyası 4 MB ile sınırlı |
+| Kurtarma anahtarı | Kurulumda oluşur, açık saklanmaz, tek kullanımlık, yenisi eskisini iptal eder, yönetici gibi kilitlenir, zayıf yeni kod anahtarı harcamaz, tuş takımıyla 20 rakam, ayarlardan yenileme |
 | Qt arayüzü | PIN düğmeleri, giriş/çıkış, iptal, yanlış PIN, arama, yönetici sekmeleri ve kapanma |
 | Performans | 3 yıl × 30 personel veride çakışma denetimi < 0,5 sn; günlük yedek süreç başına bir kez doğrulanır |
 | Çakışma algoritması | Yeni sıralı tarama, eski self-join ile 400 rastgele veri kümesinde ve kenar durumlarında aynı sonucu verir |

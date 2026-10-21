@@ -1,3 +1,4 @@
+import re
 import secrets
 import sys
 import time
@@ -77,6 +78,13 @@ def reason_text(reason):
     if not 5 <= len(reason) <= 500:
         raise AppError("İşlem gerekçesi 5–500 karakter olmalı.")
     return reason
+
+
+RECOVERY_DIGITS = 20
+
+
+def format_recovery_key(key):
+    return "-".join(key[i:i + 4] for i in range(0, len(key), 4))
 
 
 def lock_message(seconds, staff=True):
@@ -204,7 +212,9 @@ class Service:
                           before=dict(row), after=after, reason=FORGOTTEN_EXIT)
 
     def setup(self, password, timezone="Europe/Istanbul"):
+        """First run; returns the recovery key to show once (see new_recovery_key)."""
         validate_password(password)
+        key = self._new_key()
         ZoneInfo(timezone)
         encoded = hash_secret(password)
         with self.db.transaction():
@@ -216,6 +226,53 @@ class Service:
             self.db.set_meta("day_start_hour", DEFAULT_DAY_START_HOUR)
             self.db.set_meta("last_wall", self.clock.wall())
             self.db.audit(self.clock.wall(), "admin", "SETUP", "system", after={"timezone": timezone})
+            self._store_recovery(key[1])
+        return key[0]
+
+    # --- recovery key: digits only, so the kiosk keypad can enter it ---------
+
+    @staticmethod
+    def _new_key():
+        digits = f"{secrets.randbelow(10 ** RECOVERY_DIGITS):0{RECOVERY_DIGITS}d}"
+        return format_recovery_key(digits), hash_secret(digits)
+
+    def _store_recovery(self, encoded):
+        self.db.conn.execute("""INSERT INTO credentials(subject,secret) VALUES('recovery',?)
+            ON CONFLICT(subject) DO UPDATE SET secret=excluded.secret,failures=0,locked_until=0""", (encoded,))
+
+    @property
+    def has_recovery_key(self):
+        return self.db.conn.execute(
+            "SELECT 1 FROM credentials WHERE subject='recovery'").fetchone() is not None
+
+    def new_recovery_key(self, token):
+        """Replace the recovery key; the old one stops working. Shown once, never stored in clear."""
+        self.require_admin(token)
+        shown, encoded = self._new_key()
+        with self.db.transaction():
+            self._store_recovery(encoded)
+            self.db.audit(self.clock.wall(), "admin", "RECOVERY_KEY", "recovery")
+        return shown
+
+    def recover_admin(self, key, new_code):
+        """Set a new admin code with the paper key; returns the replacement key (the used one dies)."""
+        self._authenticate("recovery", re.sub(r"[^0-9]", "", key or ""))
+        validate_password(new_code)
+        encoded, (shown, key_encoded) = hash_secret(new_code), self._new_key()
+        with self.db.transaction():
+            self.db.conn.execute(
+                "UPDATE credentials SET secret=?,failures=0,locked_until=0 WHERE subject='admin'", (encoded,))
+            self._store_recovery(key_encoded)
+            self.db.audit(self.clock.wall(), "recovery", "ADMIN_RECOVERED", "admin",
+                          reason="Yönetici kodu kurtarma anahtarıyla değiştirildi; anahtar yenilendi.")
+        self._tokens.clear()
+        return shown
+
+    def admin_notes(self):
+        """Everything the admin should act on that is not a work record; empty when all is well."""
+        notes = [] if not self.configured or self.has_recovery_key else [
+            "Kurtarma anahtarı yok. Ayarlar → Kurtarma anahtarı oluştur; çıktısını kasada saklayın."]
+        return notes + self.health.problems()
 
     def tick(self):
         """Detect backward time and wall/monotonic drift; note long offline gaps.
@@ -263,12 +320,12 @@ class Service:
             if row is None or len(secret) > 128:
                 error = "Kimlik bilgisi doğrulanamadı."
             elif row["locked_until"] > now:
-                error = lock_message(row["locked_until"] - now, subject != "admin")
+                error = lock_message(row["locked_until"] - now, subject.startswith("staff:"))
             elif not verify_secret(secret, row["secret"]):
                 failures = row["failures"] + 1
                 # Locks escalate; the counter only resets on a correct code,
                 # an admin unlock (staff) or a code change.
-                lock_for = admin_lock_seconds if subject == "admin" else staff_lock_seconds
+                lock_for = staff_lock_seconds if subject.startswith("staff:") else admin_lock_seconds
                 seconds, stored = lock_for(failures), failures
                 locked = now + seconds if seconds else 0
                 self.db.conn.execute(
@@ -279,7 +336,7 @@ class Service:
                     self.db.audit(now, "system", "AUTH_LOCK", subject,
                                   after={"failures": failures, "seconds": seconds},
                                   reason=f"{failures} hatalı deneme")
-                    error = lock_message(seconds, subject != "admin")
+                    error = lock_message(seconds, subject.startswith("staff:"))
                 else:
                     error = "Kimlik bilgisi doğrulanamadı."
             else:

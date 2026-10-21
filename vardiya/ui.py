@@ -22,6 +22,7 @@ from .backup import automatic_backup, backup_usage, create_backup, restore_datab
 from .formatting import cents, tl
 from .reports import build_report, export_audit, export_report
 from .security import PIN_LENGTH, AppError
+from .service import RECOVERY_DIGITS
 from .widgets import (
     Backdrop, HeatmapWidget, Keypad, PersonRing, PinDots, RingWidget, StatTile, TimelineWidget, WelcomeDialog,
     app_icon, avatar_pixmap, current, font, load_fonts, logo_pixmap, set_current,
@@ -136,7 +137,8 @@ ACTION_NAMES = {
     "SESSION_MANUAL": "Kayıt eklendi", "SESSION_CORRECT": "Kayıt düzeltildi",
     "SESSION_VOID": "Kayıt iptal", "PAYMENT_ADD": "Ödeme eklendi", "PAYMENT_VOID": "Ödeme iptal",
     "RESTORE": "Yedekten kurtarma", "SESSION_FLAG": "Çıkış unutuldu", "SETTING_CHANGE": "Ayar değişti",
-    "SCHEMA_UPGRADE": "Veri şeması güncellendi",
+    "SCHEMA_UPGRADE": "Veri şeması güncellendi", "RECOVERY_KEY": "Kurtarma anahtarı yenilendi",
+    "ADMIN_RECOVERED": "Kod anahtarla kurtarıldı",
 }
 AUDIT_SCREEN_LIMIT = 1000
 
@@ -144,7 +146,7 @@ AUDIT_SCREEN_LIMIT = 1000
 # Audit actors/entities are stored as "admin", "staff:5", "session:32"...; screens show words.
 AUDIT_NAMES = {"admin": "Yönetici", "system": "Sistem", "clock": "Saat", "theme": "Tema",
                "day_start_hour": "İş günü saati", "session": "Kayıt", "payment": "Ödeme",
-               "schema": "Veri şeması"}
+               "schema": "Veri şeması", "recovery": "Kurtarma anahtarı"}
 
 
 def action_name(code):
@@ -321,8 +323,13 @@ class KeypadInput:
         self.pin.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, False)
         self.pin.setAccessibleName("Dört haneli şifre")
         self.dots = PinDots(PIN_LENGTH)
-        self.pin.textChanged.connect(lambda text: self.dots.set_filled(min(len(text), PIN_LENGTH)))
+        self.code_length = PIN_LENGTH
+        # Long codes (the 20-digit recovery key, printed on paper) show as grouped digits.
+        self.long_view = label("", "longcode")
+        self.long_view.hide()
+        self.pin.textChanged.connect(self._show_code)
         box.addWidget(self.dots, 0, Qt.AlignmentFlag.AlignHCenter)
+        box.addWidget(self.long_view, 0, Qt.AlignmentFlag.AlignHCenter)
         box.addWidget(self.pin)
         self.keypad = Keypad(key_size)
         self.keypad.digit.connect(self.press)
@@ -331,16 +338,30 @@ class KeypadInput:
         box.addWidget(self.keypad, 0, Qt.AlignmentFlag.AlignHCenter)
         self._submit_pending = False
 
+    def set_code_length(self, length):
+        self.code_length = length
+        self.dots.setVisible(length <= PIN_LENGTH)
+        self.long_view.setVisible(length > PIN_LENGTH)
+        self._show_code(self.pin.text())
+
+    def _show_code(self, text):
+        if self.code_length <= PIN_LENGTH:
+            self.dots.set_filled(min(len(text), PIN_LENGTH))
+            return
+        slots = (text + "·" * self.code_length)[:self.code_length]
+        self.long_view.setText(" ".join(slots[i:i + 4] for i in range(0, self.code_length, 4)))
+
     def press(self, text):
         if text == "Temizle":
             self.pin.clear()
         elif text == "Sil":
             self.pin.backspace()
         else:
-            if len(self.pin.text()) >= PIN_LENGTH and self.pin.text().isdigit():
+            if len(self.pin.text()) >= self.code_length and self.pin.text().isdigit():
                 return
             self.pin.insert(text)
-            if len(self.pin.text()) == PIN_LENGTH and self.pin.text().isdigit() and not self._submit_pending:
+            if (len(self.pin.text()) == self.code_length and self.pin.text().isdigit()
+                    and not self._submit_pending):
                 # Submit on the last digit; the short pause lets the last dot appear.
                 self._submit_pending = True
                 QTimer.singleShot(180, self, self.confirm)
@@ -449,12 +470,14 @@ class PinDialog(KeypadInput, QDialog):
 class CodeDialog(KeypadInput, QDialog):
     """Admin code entry with the same compact keypad (no OS touch keyboard).
 
-    `steps` are the prompts shown one after another (e.g. new code, repeat);
-    `submit` receives the list of entered codes and returns the result value.
+    `steps` are the prompts shown one after another (e.g. new code, repeat), either text
+    or (text, digit count); `submit` receives the list of entered codes and returns the
+    result value. `extra` = (button text, callback(dialog)) adds a second link button.
     """
-    def __init__(self, title, steps, submit, parent=None, note=""):
+    def __init__(self, title, steps, submit, parent=None, note="", extra=None):
         QDialog.__init__(self, parent)
         self.setWindowTitle(title)
+        steps = [s if isinstance(s, tuple) else (s, PIN_LENGTH) for s in steps]
         self.steps, self.submit, self.codes = steps, submit, []
         self.result_value = None
         self.result_sid = None
@@ -462,7 +485,7 @@ class CodeDialog(KeypadInput, QDialog):
         box.setContentsMargins(28, 22, 28, 20)
         box.setSpacing(8)
         box.addWidget(label(title, "h2"))
-        self.prompt = label(steps[0], "subtitle")
+        self.prompt = label(steps[0][0], "subtitle")
         box.addWidget(self.prompt)
         if note:
             box.addWidget(label(note, "faint"))
@@ -471,9 +494,18 @@ class CodeDialog(KeypadInput, QDialog):
         self.error = label("", "warning")
         self.error.hide()
         box.addWidget(self.error)
+        links = QHBoxLayout()
+        links.addStretch()
+        if extra:
+            self.extra = button(extra[0], lambda: extra[1](self), name="ghost")
+            self.extra.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            links.addWidget(self.extra)
         cancel = button("vazgeç", self.reject, name="ghost")
         cancel.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        box.addWidget(cancel, 0, Qt.AlignmentFlag.AlignHCenter)
+        links.addWidget(cancel)
+        links.addStretch()
+        box.addLayout(links)
+        self.set_code_length(steps[0][1])
         self.setFixedWidth(360)
 
     def confirm(self):
@@ -484,7 +516,8 @@ class CodeDialog(KeypadInput, QDialog):
         self.codes.append(code)
         self.pin.clear()
         if len(self.codes) < len(self.steps):
-            self.prompt.setText(self.steps[len(self.codes)])
+            self.prompt.setText(self.steps[len(self.codes)][0])
+            self.set_code_length(self.steps[len(self.codes)][1])
             self.error.hide()
             return
         try:
@@ -492,7 +525,8 @@ class CodeDialog(KeypadInput, QDialog):
             self.accept()
         except AppError as exc:
             self.codes = []
-            self.prompt.setText(self.steps[0])
+            self.prompt.setText(self.steps[0][0])
+            self.set_code_length(self.steps[0][1])
             self.error.setText(str(exc))
             self.error.show()
             self.dots.set_filled(0, error=True)
@@ -503,17 +537,88 @@ class CodeDialog(KeypadInput, QDialog):
         super().done(result)
 
 
+def print_html(html, parent=None, pdf_path=None):
+    """Print a simple HTML page (printer dialog), or write it as A4 PDF when `pdf_path` is given."""
+    from PySide6.QtGui import QPageSize, QTextDocument
+    from PySide6.QtPrintSupport import QPrintDialog, QPrinter
+    document = QTextDocument()
+    document.setHtml(html)
+    printer = QPrinter(QPrinter.PrinterMode.HighResolution)
+    printer.setPageSize(QPageSize(QPageSize.PageSizeId.A4))
+    if pdf_path:
+        printer.setOutputFormat(QPrinter.OutputFormat.PdfFormat)
+        printer.setOutputFileName(str(pdf_path))
+    elif QPrintDialog(printer, parent).exec() != QDialog.DialogCode.Accepted:
+        return False
+    document.print_(printer)
+    return True
+
+
+def recovery_sheet(key, created):
+    return (f"<h2>Ó'is · Vardiya Takip — kurtarma anahtarı</h2>"
+            f"<p style='font-size:20pt; letter-spacing:2px'><b>{key}</b></p>"
+            f"<p>Oluşturulma: {created}</p>"
+            "<p>Yönetici kodu unutulursa: kioskta <b>yönetici</b> → <b>kodu unuttum</b> → bu 20 rakamı girin ve "
+            "yeni kodu belirleyin. Kullanılan anahtar geçersiz olur; program yenisini gösterir.</p>"
+            "<p>Bu kâğıdı kasada saklayın. Anahtar bilgisayarda açık olarak tutulmaz ve bir daha gösterilmez.</p>")
+
+
+class RecoveryKeyDialog(QDialog):
+    """Shows a new recovery key once, with a printable sheet."""
+    def __init__(self, key, parent=None):
+        super().__init__(parent)
+        self.key = key
+        self.setWindowTitle("Kurtarma anahtarı")
+        box = QVBoxLayout(self)
+        box.setContentsMargins(28, 22, 28, 20)
+        box.setSpacing(10)
+        box.addWidget(label("kurtarma anahtarı", "h2"))
+        self.key_label = label(key, "recoverykey")
+        self.key_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        box.addWidget(self.key_label)
+        box.addWidget(label("Yönetici kodunu unutursanız yeni kod yalnızca bu anahtarla belirlenebilir. "
+                            "Yazdırın ya da kâğıda yazın ve kasada saklayın. Bir daha gösterilmez.", "subtitle"))
+        row = QHBoxLayout()
+        row.addWidget(button("Yazdır", self.print_sheet))
+        row.addStretch()
+        row.addWidget(button("Kâğıda yazdım", self.accept, name="primary"))
+        box.addLayout(row)
+        self.setMinimumWidth(460)
+
+    @guarded
+    def print_sheet(self):
+        print_html(recovery_sheet(self.key, datetime.now().strftime("%d.%m.%Y %H:%M")), self)
+
+
+def recover_with_key(service, login):
+    """"kodu unuttum" in the login dialog: paper key → new admin code → new key shown → logged in."""
+    def submit(codes):
+        key, new, repeat = codes
+        if new != repeat:
+            raise AppError("Yeni kodlar aynı değil. Baştan girin.")
+        return new, service.recover_admin(key, new)
+    dialog = CodeDialog("Kodu unuttum", [("kâğıttaki 20 rakamlık kurtarma anahtarını gir", RECOVERY_DIGITS),
+                                         "yeni 4 haneli yönetici kodu", "yeni kodu tekrar gir"],
+                        submit, login, "Anahtar kullanıldıktan sonra geçersiz olur; yenisi gösterilir.")
+    if dialog.exec():
+        new, key = dialog.result_value
+        RecoveryKeyDialog(key, login).exec()
+        login.result_value = service.login_admin(new)
+        login.accept()
+
+
 def admin_login_dialog(service, parent=None):
     return CodeDialog("Yönetici girişi", ["yönetici şifresini gir"],
-                      lambda codes: service.login_admin(codes[0]), parent)
+                      lambda codes: service.login_admin(codes[0]), parent,
+                      extra=("kodu unuttum", lambda dialog: recover_with_key(service, dialog)))
 
 
 def setup_dialog(service, parent=None):
+    """First run; `result_value` is the recovery key the caller must show (RecoveryKeyDialog)."""
     def submit(codes):
         if codes[0] != codes[1]:
             raise AppError("Şifreler aynı değil. Baştan girin.")
-        service.setup(codes[0])
-        return True
+        return service.setup(codes[0])
     return CodeDialog("İlk kurulum", ["4 haneli yönetici şifresi belirle", "aynı şifreyi tekrar gir"],
                       submit, parent, "1111 ya da 1234 gibi kolay şifreler kabul edilmez.")
 
@@ -1039,7 +1144,9 @@ class AdminDialog(QDialog):
         box.addWidget(frame)
 
         frame, inner = panel("güvenlik ve yedek")
-        self.toolbar(inner, [("Şifre değiştir", self.change_password), ("Bütünlüğü denetle", self.check_integrity),
+        self.toolbar(inner, [("Şifre değiştir", self.change_password),
+                             ("Kurtarma anahtarı oluştur", self.new_recovery_key),
+                             ("Bütünlüğü denetle", self.check_integrity),
                              ("Yedek al", self.backup), ("Yedekten kurtar", self.restore)])
         inner.addWidget(label("Veri klasörü: " + str(self.service.db.path.parent), "faint"))
         self.backup_note = label("", "subtitle")
@@ -1123,7 +1230,7 @@ class AdminDialog(QDialog):
         since, until = s.day_bounds(day, day)
         self.today_subtitle.setText(f"{th.DAYS[day.weekday()]}, {day.day} {th.MONTHS[day.month - 1]} · "
                                     f"iş günü {s.day_start_hour:02d}:00’da başlar")
-        problems = s.health.problems()
+        problems = s.admin_notes()
         self.health_note.setText("\n".join(problems))
         self.health_note.setVisible(bool(problems))
         kiosk = {e["id"]: e for e in s.kiosk_employees()}
@@ -1365,6 +1472,16 @@ class AdminDialog(QDialog):
                          submit, self, "Değişiklikten sonra yeniden giriş yapmanız gerekir.")
         if dlg.exec():
             self.accept()
+
+    @guarded
+    def new_recovery_key(self):
+        self.service.require_admin(self.token)
+        if self.service.has_recovery_key and QMessageBox.question(
+                self, "Kurtarma anahtarı", "Yeni anahtar oluşturulursa kâğıttaki eski anahtar geçersiz olur. "
+                "Devam edilsin mi?") != QMessageBox.StandardButton.Yes:
+            return
+        RecoveryKeyDialog(self.service.new_recovery_key(self.token), self).exec()
+        self.refresh()
 
     @guarded
     def audit_detail(self):
@@ -1609,14 +1726,13 @@ class MainWindow(QMainWindow):
             backup_failed = False
         except (AppError, sqlite3.Error, OSError):
             backup_failed = True
-        health = self.service.health
-        if health.integrity_due():
-            health.check_integrity()
+        if self.service.health.integrity_due():
+            self.service.health.check_integrity()
         # Anything only the admin can fix is a short count; details live in the admin panel.
         # Forgotten exits and open records older than 24 h, each person counted once.
         stuck = sum(1 for e in people if e["session_id"] and (self.service.past_day_boundary(e["start_at"])
                                                                or now - e["start_at"] > 86400))
-        notes = stuck + bool(notice and not alert) + len(health.problems())
+        notes = stuck + bool(notice and not alert) + len(self.service.admin_notes())
         if notes:
             lines.append(f"Yönetici için {notes} not var.")
         if backup_failed:

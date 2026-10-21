@@ -91,7 +91,7 @@ def main():
             print(f"Kurtarma tamamlandı. Önceki veriler: {archive}")
             return 0
         from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
-        from .ui import CodeDialog, MainWindow, apply_theme, setup_dialog
+        from .ui import CodeDialog, MainWindow, RecoveryKeyDialog, apply_theme, setup_dialog
         app = QApplication(sys.argv[:1])
         app.setApplicationName("VardiyaTakip")
         app.setApplicationDisplayName("Ó'is · Vardiya")
@@ -120,6 +120,7 @@ def main():
             dialog = setup_dialog(service)
             if not dialog.exec():
                 return 0
+            RecoveryKeyDialog(dialog.result_value).exec()
         window = MainWindow(service)
         window.showMaximized()      # the kiosk fills the screen on any resolution
         result = app.exec()

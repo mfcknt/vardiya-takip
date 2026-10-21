@@ -2,11 +2,13 @@ import time
 import uuid
 from datetime import date
 
+import pytest
 from PySide6.QtCore import QDate, Qt
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QDialog, QLabel
+from PySide6.QtWidgets import QDialog, QLabel, QMessageBox
 
 from conftest import PASSWORD, PIN, ts
+from vardiya.security import AppError
 from vardiya.ui import AdminDialog, EmployeeDialog, MainWindow, PaymentDialog, PinDialog, SessionDialog
 from vardiya.widgets import PersonRing, WelcomeDialog
 
@@ -571,3 +573,52 @@ def test_health_problems_reach_kiosk_count_and_admin_page(qapp, system, monkeypa
     assert "100 MB" in panel.health_note.text() and not panel.health_note.isHidden()
     panel.reject()
     window.close()
+
+
+def test_forgotten_admin_code_with_the_paper_key(qapp, system, monkeypatch):
+    from vardiya import ui
+    from vardiya.ui import RecoveryKeyDialog, admin_login_dialog
+    s, c, token, _ = system
+    key = s.new_recovery_key(token)
+    shown = []
+    monkeypatch.setattr(RecoveryKeyDialog, "exec", lambda self: shown.append(self.key_label.text()) or 1)
+    real_exec = ui.CodeDialog.exec
+
+    def type_codes(dialog):
+        if dialog.windowTitle() != "Kodu unuttum":
+            return real_exec(dialog)
+        assert not dialog.long_view.isHidden() and dialog.dots.isHidden()
+        for d in key.replace("-", "")[:7]:
+            dialog.press(d)
+        assert dialog.long_view.text() == key.replace("-", "")[:4] + " " + key.replace("-", "")[4:7] + "· " + \
+            " ".join(["····"] * 3)
+        for d in key.replace("-", "")[7:]:
+            dialog.press(d)
+        dialog.confirm()                             # 20 digits → next step is a 4-digit code
+        assert dialog.long_view.isHidden() and not dialog.dots.isHidden()
+        for code in ("5826", "5826"):
+            for d in code:
+                dialog.press(d)
+            dialog.confirm()
+        return dialog.result()
+    monkeypatch.setattr(ui.CodeDialog, "exec", type_codes)
+    login = admin_login_dialog(s)
+    login.extra.click()
+    assert login.result() == QDialog.DialogCode.Accepted and login.result_value in s._tokens
+    assert len(shown) == 1 and shown[0] != key
+    s.login_admin("5826")
+
+
+def test_setup_and_settings_show_a_new_recovery_key(qapp, system, monkeypatch):
+    from vardiya.ui import RecoveryKeyDialog
+    s, c, token, _ = system
+    shown = []
+    monkeypatch.setattr(RecoveryKeyDialog, "exec", lambda self: shown.append(self.key) or 1)
+    monkeypatch.setattr(QMessageBox, "question", lambda *a, **k: QMessageBox.StandardButton.Yes)
+    panel = AdminDialog(s, token)
+    panel.new_recovery_key()
+    assert len(shown) == 1 and panel.audit_table.item(0, 3).text() == "Kurtarma anahtarı yenilendi"
+    with pytest.raises(AppError):
+        s.recover_admin("0" * 20, "5826")
+    s.recover_admin(shown[0], "5826")
+    panel.reject()

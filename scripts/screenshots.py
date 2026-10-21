@@ -21,7 +21,10 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from vardiya.security import AppError  # noqa: E402
 from vardiya.service import Service  # noqa: E402
 from vardiya.storage import Database  # noqa: E402
-from vardiya.ui import AdminDialog, MainWindow, PinDialog, apply_theme  # noqa: E402
+from vardiya.ui import (  # noqa: E402
+    AdminDialog, CodeDialog, MainWindow, PinDialog, RecoveryKeyDialog, apply_theme,
+)
+from vardiya.service import RECOVERY_DIGITS  # noqa: E402
 from vardiya.widgets import WelcomeDialog  # noqa: E402
 
 ZONE = ZoneInfo("Europe/Istanbul")
@@ -133,6 +136,16 @@ def main(out):
                                 "", window, timeout_ms=60_000)
         grab(welcome, out / f"welcome-{theme}.png")
         welcome.reject()
+        if theme == "dark":
+            key = RecoveryKeyDialog("4827-1093-5561-2048-7735", window)
+            grab(key, out / "recovery-key-dark.png")
+            key.reject()
+            forgot = CodeDialog("Kodu unuttum", [("kâğıttaki 20 rakamlık kurtarma anahtarını gir",
+                                                  RECOVERY_DIGITS)], lambda codes: None, window)
+            for digit in "4827109":
+                forgot.press(digit)
+            grab(forgot, out / "recovery-enter-dark.png")
+            forgot.reject()
         token = service.login_admin(PASSWORD)
         panel = AdminDialog(service, token, window)
         pages = ["today", "people", "sessions", "report", "payments", "settings"]
