@@ -35,10 +35,10 @@ THEMES = {
     },
     "light": {
         "name": "light",
-        "bg": "#f7efe6", "surface": "#fffaf4", "surface2": "#f1e7dc", "line": "#e2d4c6",
-        "line_soft": "#ecdfd2", "watermark": "#efe3d6",
-        "text": "#2a0f0c", "muted": "#7d6a63", "faint": "#a8968e",
-        "ring": "#3a0300", "ring_track": "#e7d9cc", "ring_idle": "#d6c2b4",
+        "bg": "#f7efe6", "surface": "#fffaf4", "surface2": "#efe3d6", "line": "#cdb8a6",
+        "line_soft": "#e4d5c7", "watermark": "#efe3d6",
+        "text": "#2a0f0c", "muted": "#6b5850", "faint": "#8f7c73",
+        "ring": "#3a0300", "ring_track": "#e0cfbf", "ring_idle": "#b9a190",
         "brand": "#3a0300", "on_brand": "#f6ece3", "primary": "#3a0300", "on_primary": "#f6ece3",
         "inside": "#2e7a4d", "inside_soft": "#e1f0e6",
         "warn": "#a8640c", "warn_text": "#8a520a", "warn_soft": "#fbecd6",
@@ -108,17 +108,8 @@ def hours_text(seconds):
 
 
 def greeting(local: datetime, business_day):
-    """'salı akşamı · iyi servisler' — weekday of the business day, phase of the clock."""
-    hour = local.hour
-    if 5 <= hour < 11:
-        phase = "sabahı"
-    elif 11 <= hour < 17:
-        phase = "öğlesi"
-    elif 17 <= hour < 23:
-        phase = "akşamı"
-    else:
-        phase = "gecesi"
-    return f"{DAYS[business_day.weekday()]} {phase} · iyi servisler"
+    """Plain date line: 'salı, 20 ekim' (the business day, so 00:30 still shows the night's day)."""
+    return f"{DAYS[business_day.weekday()]}, {business_day.day} {MONTHS[business_day.month - 1]}"
 
 
 def stylesheet(t):
@@ -141,6 +132,7 @@ QLabel#warning {{ background: {t['warn_soft']}; color: {t['warn_text']}; padding
 QLabel#success {{ background: {t['inside_soft']}; color: {t['inside']}; padding: 12px 16px;
                   border-radius: 14px; }}
 QLabel#status {{ color: {t['muted']}; font-size: 14px; }}
+QLabel#insideCount {{ color: {t['inside']}; font-family: "Jost"; font-size: 22px; font-weight: 400; }}
 QLabel#note {{ background: {t['surface2']}; color: {t['muted']}; padding: 12px 16px; border-radius: 14px; }}
 QLabel#tileValue {{ font-family: "Jost"; font-weight: 300; font-size: 34px; }}
 QLabel#tileValueWarn {{ font-family: "Jost"; font-weight: 300; font-size: 34px; color: {t['warn_text']}; }}

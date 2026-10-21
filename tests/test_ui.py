@@ -345,3 +345,84 @@ def test_pin_submits_itself_after_four_digits(qapp, system):
     assert dialog.result() == QDialog.DialogCode.Accepted and dialog.result_sid
     dialog.confirm()                     # a late extra tap does nothing
     assert len(s.sessions(s.login_admin(PASSWORD))) == 1
+
+
+def test_admin_login_and_setup_use_the_keypad(qapp, tmp_path):
+    from conftest import FakeClock
+    from vardiya.service import Service
+    from vardiya.storage import Database
+    from vardiya.ui import admin_login_dialog, setup_dialog
+    db = Database(tmp_path / "v.sqlite3")
+    s = Service(db, FakeClock(ts("2026-10-20T12:00")))
+    dlg = setup_dialog(s)
+    for d in "7391":
+        dlg.press(d)
+    dlg.confirm()
+    assert "tekrar" in dlg.prompt.text()
+    for d in "7392":
+        dlg.press(d)
+    dlg.confirm()                                    # mismatch: starts over, nothing saved
+    assert not s.configured and not dlg.error.isHidden()
+    for code in ("7391", "7391"):
+        for d in code:
+            dlg.press(d)
+        dlg.confirm()
+    assert s.configured and dlg.result() == QDialog.DialogCode.Accepted
+    login = admin_login_dialog(s)
+    login.show()
+    for d in "7391":
+        login.press(d)
+    QTest.qWait(400)                                 # submits itself on the 4th digit
+    assert login.result() == QDialog.DialogCode.Accepted and login.result_value in s._tokens
+    db.close()
+
+
+def test_keypad_never_focuses_a_text_field(qapp, system):
+    s, _, _, _ = system
+    dialog = PinDialog(s, s.kiosk_employees()[0])
+    dialog.show()
+    qapp.processEvents()
+    assert dialog.pin.focusPolicy() == Qt.FocusPolicy.NoFocus
+    assert not dialog.pin.testAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled)
+    QTest.keyClicks(dialog, "48")                    # a physical keyboard still works
+    assert dialog.pin.text() == "48"
+    QTest.keyClick(dialog, Qt.Key.Key_Backspace)
+    assert dialog.pin.text() == "4"
+    dialog.reject()
+
+
+def test_day_by_day_navigation(qapp, system):
+    s, _, token, _ = system
+    panel = AdminDialog(s, token)
+    bar = panel.session_filter
+    from vardiya.ui import step_days
+    step_days(bar.first, bar.last, -1, panel.refresh)
+    assert bar.first.date() == bar.last.date()
+    assert bar.last.date().toPython().isoformat() == "2026-10-19"
+    step_days(bar.first, bar.last, 1, panel.refresh)
+    assert bar.last.date().toPython().isoformat() == "2026-10-20"
+    step_days(panel.first, panel.last, -1, panel.calculate)
+    assert panel.report["first"] == panel.report["last"] == "2026-10-19"
+    bar.last_30(panel.refresh)
+    assert bar.first.date().daysTo(bar.last.date()) == 29
+    panel.reject()
+
+
+def test_windows_fit_small_screens_and_inside_count(qapp, system):
+    s, _, token, eid = system
+    window = MainWindow(s)
+    window.show()
+    assert "kimse" in window.inside_label.text()
+    s.attendance(eid, PIN, "start", None, str(uuid.uuid4()))
+    window.refresh()
+    assert window.inside_label.text() == "içeride 1 kişi"
+    area = window.screen().availableGeometry()
+    panel = AdminDialog(s, token, window)
+    assert panel.width() <= area.width() and panel.height() <= area.height()
+    pin = PinDialog(s, s.kiosk_employees()[0], window)
+    pin.show()
+    qapp.processEvents()
+    assert pin.sizeHint().height() <= 720
+    pin.reject()
+    panel.reject()
+    window.close()

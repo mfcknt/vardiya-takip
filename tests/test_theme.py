@@ -28,10 +28,8 @@ def test_time_texts():
 
 def test_greeting_uses_business_day_and_phase():
     tuesday = date(2026, 10, 20)
-    assert th.greeting(datetime(2026, 10, 20, 21, 42), tuesday) == "salı akşamı · iyi servisler"
-    assert th.greeting(datetime(2026, 10, 21, 0, 30), tuesday) == "salı gecesi · iyi servisler"
-    assert th.greeting(datetime(2026, 10, 20, 9, 0), tuesday).startswith("salı sabahı")
-    assert th.greeting(datetime(2026, 10, 20, 13, 0), tuesday).startswith("salı öğlesi")
+    assert th.greeting(datetime(2026, 10, 20, 21, 42), tuesday) == "salı, 20 ekim"
+    assert th.greeting(datetime(2026, 10, 21, 0, 30), tuesday) == "salı, 20 ekim"   # still that night
 
 
 def test_themes_share_keys_and_stylesheet_builds():

@@ -352,19 +352,12 @@ class Service:
             self.db.audit(self.clock.wall(), "admin", "AUTH_UNLOCK", f"staff:{eid}",
                           before=dict(row), reason=reason)
 
-    def _not_admin_code(self, pin):
-        """A staff PIN equal to the admin code would open the admin panel to that person."""
-        row = self.db.conn.execute("SELECT secret FROM credentials WHERE subject='admin'").fetchone()
-        if row and verify_secret(pin, row["secret"]):
-            raise AppError("Bu PIN yönetici şifresiyle aynı olamaz; başka bir PIN seçin.")
-
     def add_employee(self, token, name, pin, rate_cents):
         self.require_admin(token)
         name = name.strip()
         if not 1 <= len(name) <= 80:
             raise AppError("Ad soyad 1–80 karakter olmalı.")
         validate_pin(pin)
-        self._not_admin_code(pin)
         valid_cents(rate_cents)
         encoded, now = hash_secret(pin), self.clock.wall()
         with self.db.transaction():
@@ -392,7 +385,6 @@ class Service:
         encoded = None
         if pin:
             validate_pin(pin)
-            self._not_admin_code(pin)
             encoded = hash_secret(pin)
         with self.db.transaction():
             before = self.db.conn.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone()

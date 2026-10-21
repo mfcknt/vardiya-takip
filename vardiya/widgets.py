@@ -13,7 +13,7 @@ from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontDatabase, QIcon, QImage, QPainter, QPen, QPixmap,
 )
 from PySide6.QtWidgets import (
-    QAbstractButton, QDialog, QFrame, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
+    QAbstractButton, QDialog, QFrame, QGridLayout, QHBoxLayout, QLabel, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 from . import theme as th
@@ -197,27 +197,25 @@ class PersonRing(QAbstractButton):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setFixedSize(160, 186)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
-        self.press_level = 0.0    # 0 = rest, 1 = fully pressed
+        self.press_level = 0.0    # derived from the pulse (kept for tests/painting)
         self.hover_level = 0.0
-        self.pressed.connect(self._on_press)
-        self.released.connect(self._on_release)
+        self.pulse = 1.0          # 0 → 1 after each touch; 1 = at rest
+        self.pressed.connect(self.play_pulse)
 
-    def _set_press(self, value):
-        self.press_level = value
+    def _set_pulse(self, value):
+        self.pulse = value
+        self.press_level = math.sin(math.pi * min(1.0, value)) if value < 1.0 else 0.0
         self.update()
 
     def _set_hover(self, value):
         self.hover_level = value
         self.update()
 
-    def _on_press(self):
-        animate(self, "press", self.press_level, 1.0, 90, self._set_press)
-        animate(self, "hover", self.hover_level, 1.0, 90, self._set_hover)
-
-    def _on_release(self):
-        # spring back slightly past rest, like a soft button
-        animate(self, "press", self.press_level, 0.0, 280, self._set_press, QEasingCurve.Type.OutBack)
-        animate(self, "hover", self.hover_level, 0.0 if not self.underMouse() else 0.5, 320, self._set_hover)
+    def play_pulse(self):
+        """A touch on a touchscreen arrives as press+release within milliseconds,
+        so the feedback is a fixed 360 ms pulse that always plays to the end:
+        the ring dips and springs back while a soft wave spreads from it."""
+        animate(self, "pulse", 0.0, 1.0, 360, self._set_pulse, QEasingCurve.Type.OutQuad)
 
     def enterEvent(self, event):
         animate(self, "hover", self.hover_level, 0.5, 140, self._set_hover)
@@ -242,13 +240,19 @@ class PersonRing(QAbstractButton):
         t = current()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        scale = 1.0 - 0.07 * self.press_level
+        if self.pulse < 1.0:
+            # expanding, fading wave behind the ring
+            wave = 46 * (1.0 + 0.45 * self.pulse)
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(with_alpha(t["ring"], 0.22 * (1.0 - self.pulse)))
+            p.drawEllipse(QPointF(self.width() / 2, 80), wave, wave)
+        scale = 1.0 - 0.10 * self.press_level
         if scale != 1.0:
             p.translate(self.width() / 2, 80)
             p.scale(scale, scale)
             p.translate(-self.width() / 2, -80)
         paint_ring(p, self.width() / 2, 80, 46, self.state, self.progress, self.letters, t,
-                   self.hover_level)
+                   max(self.hover_level, self.press_level))
         p.resetTransform()
         name_key = {"in": "text", "forgotten": "warn_text", "locked": "lock"}.get(self.state, "muted")
         p.setPen(QColor(t[name_key] if self.state != "out" else t["text"]))
@@ -265,6 +269,75 @@ class PersonRing(QAbstractButton):
             p.setPen(q)
             p.drawRoundedRect(QRectF(4, 4, self.width() - 8, self.height() - 8), 18, 18)
         p.end()
+
+
+class RoundKey(QAbstractButton):
+    """A custom-painted circular key. Every touch plays a short ripple that
+    completes on its own, so the feedback is visible even on very quick taps."""
+    def __init__(self, text, kind="digit", size=62, parent=None):
+        super().__init__(parent)
+        self.setText(text)
+        self.kind = kind                      # digit | action
+        self.ripple = 1.0
+        self.setFixedSize(size, size)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.pressed.connect(self.play)
+
+    def _set_ripple(self, value):
+        self.ripple = value
+        self.update()
+
+    def play(self):
+        animate(self, "ripple", 0.0, 1.0, 320, self._set_ripple, QEasingCurve.Type.OutCubic)
+
+    def paintEvent(self, _event):
+        t = current()
+        p = QPainter(self)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        c = QPointF(self.width() / 2, self.height() / 2)
+        r = self.width() / 2 - 1.5
+        active = self.ripple < 1.0 or self.isDown()
+        if self.kind == "digit":
+            p.setPen(QPen(QColor(t["ring"] if active else t["line"]), 1.2))
+            p.setBrush(with_alpha(t["surface2"], 0.6))
+            p.drawEllipse(c, r, r)
+        if self.ripple < 1.0:
+            p.setPen(Qt.PenStyle.NoPen)
+            p.setBrush(with_alpha(t["ring"], 0.30 * (1.0 - self.ripple)))
+            p.drawEllipse(c, r * (0.35 + 0.65 * self.ripple), r * (0.35 + 0.65 * self.ripple))
+        p.setPen(QColor(t["text"] if self.kind == "digit" else t["muted"]))
+        if self.kind == "digit":
+            p.setFont(font("Jost", self.height() * 0.40, QFont.Weight.Light))
+        else:
+            p.setFont(font("Quicksand", 13, QFont.Weight.Medium))
+        p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, self.text())
+        p.end()
+
+
+class Keypad(QWidget):
+    """Compact on-screen keypad: digits, 'temizle', 'sil'. No OS keyboard needed."""
+    digit = Signal(str)
+    clear = Signal()
+    backspace = Signal()
+
+    def __init__(self, key_size=62, parent=None):
+        super().__init__(parent)
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(int(key_size * 0.32))
+        grid.setVerticalSpacing(int(key_size * 0.16))
+        self.keys = {}
+        for i, text in enumerate(["1", "2", "3", "4", "5", "6", "7", "8", "9", "temizle", "0", "sil"]):
+            key = RoundKey(text, "digit" if text.isdigit() else "action", key_size)
+            if text.isdigit():
+                key.clicked.connect(lambda checked=False, d=text: self.digit.emit(d))
+            elif text == "sil":
+                key.clicked.connect(self.backspace.emit)
+            else:
+                key.clicked.connect(self.clear.emit)
+            self.keys[text] = key
+            grid.addWidget(key, i // 3, i % 3, Qt.AlignmentFlag.AlignCenter)
 
 
 class PinDots(QWidget):
@@ -530,7 +603,7 @@ class WelcomeDialog(QDialog):
     """A two-second confirmation after a successful start/finish."""
     closed = Signal()
 
-    def __init__(self, letters, state, title, subtitle, note, parent=None, timeout_ms=2400):
+    def __init__(self, letters, state, title, subtitle, note="", parent=None, timeout_ms=4500):
         super().__init__(parent)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint, True)
         self.setModal(True)
@@ -555,6 +628,7 @@ class WelcomeDialog(QDialog):
         self.note.setObjectName("faint")
         for w in (self.title, self.subtitle, self.note):
             texts.addWidget(w)
+        self.note.setVisible(bool(note))
         texts.addStretch()
         row.addLayout(texts, 1)
         self.setMinimumWidth(620)

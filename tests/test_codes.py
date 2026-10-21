@@ -50,14 +50,15 @@ def test_admin_lock_escalates_to_an_hour(system):
     assert row["failures"] == 0
 
 
-def test_staff_pin_cannot_equal_admin_code(system):
+def test_codes_may_repeat_and_nothing_reveals_other_codes(system):
+    """Rejecting a PIN because it matches someone else's code would tell the user
+    that code. Duplicates are therefore allowed and never mentioned."""
     s, _, token, eid = system
-    with pytest.raises(AppError, match="yönetici"):
-        s.add_employee(token, "Can Arslan", PASSWORD, 12000)
-    with pytest.raises(AppError, match="yönetici"):
-        s.update_employee(token, eid, "Ayşe Yılmaz", 15000, True, "PIN yenilendi", pin=PASSWORD)
-    s.update_employee(token, eid, "Ayşe Yılmaz", 15000, True, "PIN yenilendi", pin="7391")
-    assert s.attendance(eid, "7391", "start", None, str(uuid.uuid4()))
+    other = s.add_employee(token, "Can Arslan", PIN, 12000)          # same as Ayşe
+    same_as_admin = s.add_employee(token, "Ece Çelik", PASSWORD, 12000)
+    s.update_employee(token, eid, "Ayşe Yılmaz", 15000, True, "PIN yenilendi", pin=PASSWORD)
+    assert s.attendance(other, PIN, "start", None, str(uuid.uuid4()))
+    assert s.attendance(same_as_admin, PASSWORD, "start", None, str(uuid.uuid4()))
 
 
 def test_legacy_long_admin_password_still_signs_in(system):

@@ -23,7 +23,7 @@ from .reports import build_report, duration, export_audit, export_report
 from .security import PIN_LENGTH, AppError
 from .storage import inspect_database
 from .widgets import (
-    Backdrop, HeatmapWidget, PersonRing, PinDots, RingWidget, StatTile, TimelineWidget, WelcomeDialog,
+    Backdrop, HeatmapWidget, Keypad, PersonRing, PinDots, RingWidget, StatTile, TimelineWidget, WelcomeDialog,
     app_icon, avatar_pixmap, current, font, load_fonts, logo_pixmap, set_current,
 )
 
@@ -167,6 +167,7 @@ def make_table(headers):
     t.setIconSize(QSize(30, 30))
     t.verticalHeader().setVisible(False)
     t.verticalHeader().setDefaultSectionSize(54)
+    t.setMinimumHeight(260)
     header = t.horizontalHeader()
     header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
     header.setStretchLastSection(True)
@@ -188,6 +189,24 @@ def fill_table(table, rows, avatars=None, avatar_col=1):
                 letters, state = avatars[y]
                 item.setIcon(QIcon(avatar_pixmap(letters, state, 30, ratio)))
             table.setItem(y, x, item)
+
+
+def step_days(first, last, delta, on_change):
+    """Move a date range to the single day before/after its last day."""
+    day = last.date().addDays(delta)
+    first.setDate(day)
+    last.setDate(day)
+    on_change()
+
+
+def day_buttons(first, last, on_change):
+    prev = button("‹", lambda: step_days(first, last, -1, on_change), name="chip")
+    nxt = button("›", lambda: step_days(first, last, 1, on_change), name="chip")
+    prev.setToolTip("önceki gün")
+    nxt.setToolTip("sonraki gün")
+    for b in (prev, nxt):
+        b.setFixedWidth(44)
+    return prev, nxt
 
 
 def page_header(title, subtitle=""):
@@ -278,20 +297,90 @@ class PasswordDialog(QDialog):
         super().done(result)
 
 
-class PinDialog(QDialog):
+def fit_to_screen(widget, width, height, center=True):
+    """Size a window to fit the screen it is on (small laptops, 125–150 % scaling)."""
+    screen = widget.screen() or QApplication.primaryScreen()
+    if screen is None:
+        widget.resize(width, height)
+        return
+    area = screen.availableGeometry()
+    w, h = min(width, int(area.width() * 0.96)), min(height, int(area.height() * 0.92))
+    widget.resize(w, h)
+    if center:
+        widget.move(area.x() + (area.width() - w) // 2, area.y() + (area.height() - h) // 2)
+
+
+class KeypadInput:
+    """Shared behaviour: an on-screen keypad feeding a hidden, never-focused field.
+
+    The field never takes focus, so Windows does not pop up its touch keyboard;
+    physical keyboards still work through keyPressEvent.
+    """
+    def _build_input(self, box, key_size):
+        self.pin = secret_edit(128)
+        self.pin.setObjectName("pin")
+        self.pin.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.pin.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, False)
+        self.pin.setAccessibleName("Dört haneli şifre")
+        self.dots = PinDots(PIN_LENGTH)
+        self.pin.textChanged.connect(lambda text: self.dots.set_filled(min(len(text), PIN_LENGTH)))
+        box.addWidget(self.dots, 0, Qt.AlignmentFlag.AlignHCenter)
+        box.addWidget(self.pin)
+        self.keypad = Keypad(key_size)
+        self.keypad.digit.connect(self.press)
+        self.keypad.clear.connect(lambda: self.press("Temizle"))
+        self.keypad.backspace.connect(lambda: self.press("Sil"))
+        box.addWidget(self.keypad, 0, Qt.AlignmentFlag.AlignHCenter)
+        self._submit_pending = False
+
+    def press(self, text):
+        if text == "Temizle":
+            self.pin.clear()
+        elif text == "Sil":
+            self.pin.backspace()
+        else:
+            if len(self.pin.text()) >= PIN_LENGTH and self.pin.text().isdigit():
+                return
+            self.pin.insert(text)
+            if len(self.pin.text()) == PIN_LENGTH and self.pin.text().isdigit() and not self._submit_pending:
+                # Submit on the last digit; the short pause lets the last dot appear.
+                self._submit_pending = True
+                QTimer.singleShot(180, self, self.confirm)
+
+    def keyPressEvent(self, event):
+        key, text = event.key(), event.text()
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.confirm()
+        elif key == Qt.Key.Key_Backspace:
+            self.press("Sil")
+        elif key == Qt.Key.Key_Escape:
+            self.reject()
+        elif text and text.isprintable() and not text.isspace():
+            if text.isdigit():
+                self.press(text)
+            else:
+                self.pin.insert(text)          # legacy long admin password typed on a keyboard
+        else:
+            super().keyPressEvent(event)
+
+
+class PinDialog(KeypadInput, QDialog):
     def __init__(self, service, employee, parent=None):
-        super().__init__(parent)
+        QDialog.__init__(self, parent)
         self.service, self.employee = service, employee
         self.action = "end" if employee["session_id"] else "start"
         self.request_id = str(uuid.uuid4())
         self.result_sid = None
         self.setWindowTitle("Personel doğrulama")
-        self.setFixedWidth(470)
         self.forgotten = bool(employee["session_id"]) and service.past_day_boundary(employee["start_at"])
+        screen = self.screen() or QApplication.primaryScreen()
+        short = screen is not None and screen.availableGeometry().height() < 760
+        key = 54 if short else 62
         box = QVBoxLayout(self)
-        box.setContentsMargins(34, 26, 34, 26)
-        box.setSpacing(10)
-        ring = RingWidget(48)
+        box.setContentsMargins(28, 18, 28, 18)
+        box.setSpacing(8)
+        head = QHBoxLayout()
+        ring = RingWidget(26)
         if self.forgotten:
             state, progress = "forgotten", 0.0
         elif employee["session_id"]:
@@ -300,71 +389,40 @@ class PinDialog(QDialog):
         else:
             state, progress = "out", 0.0
         ring.set_ring(state, progress, th.initials(employee["name"]))
-        box.addWidget(ring, 0, Qt.AlignmentFlag.AlignHCenter)
-        name = label(employee["name"], "title")
-        name.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        box.addWidget(name)
+        head.addWidget(ring)
+        names = QVBoxLayout()
+        names.setSpacing(0)
+        name = label(employee["name"], "h2")
+        names.addWidget(name)
         if self.forgotten:
             hint = "giriş " + service.display_time(employee["start_at"])[:16]
         elif employee["session_id"]:
             local = datetime.fromtimestamp(employee["start_at"], service.zone)
-            hint = f"{local:%H:%M}'dan beri içeride · pin'ini gir"
+            hint = f"{local:%H:%M}'dan beri içeride"
         else:
-            hint = "4 haneli pin'ini gir"
-        sub = label(hint, "subtitle")
-        sub.setAlignment(Qt.AlignmentFlag.AlignHCenter)
-        box.addWidget(sub)
+            hint = "işe başlamak için pin'ini gir"
+        names.addWidget(label(hint, "subtitle"))
+        head.addLayout(names, 1)
+        box.addLayout(head)
         if self.forgotten:
             box.addWidget(label("Bu kayıt önceki iş gününden açık kalmış; çıkış yapılmamış. "
                                 "Şimdi kapatabilirsin, kayıt yöneticiye işaretlenir ve gerçek çıkış "
                                 "saatini yönetici girer. Ardından yeni giriş yapabilirsin.", "warning"))
-        self.pin = secret_edit(PIN_LENGTH)
-        self.pin.setObjectName("pin")
-        self.pin.setValidator(QRegularExpressionValidator(QRegularExpression("[0-9]{0,%d}" % PIN_LENGTH)))
-        self.pin.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.pin.setAccessibleName("Altı haneli personel PIN")
-        self.dots = PinDots(PIN_LENGTH)
-        self._submit_pending = False
-        self.pin.textChanged.connect(lambda text: self.dots.set_filled(len(text)))
-        box.addSpacing(6)
-        box.addWidget(self.dots, 0, Qt.AlignmentFlag.AlignHCenter)
-        box.addWidget(self.pin)   # invisible: keeps physical-keyboard input working
-        box.addSpacing(6)
-        grid = QGridLayout()
-        grid.setHorizontalSpacing(18)
-        grid.setVerticalSpacing(12)
-        for i, text in enumerate(["1", "2", "3", "4", "5", "6", "7", "8", "9", "Temizle", "0", "Sil"]):
-            caption = th.tr_lower(text) if len(text) > 1 else text
-            b = button(caption, lambda checked=False, t=text: self.press(t),
-                       name="keyText" if len(text) > 1 else "key")
-            b.setFixedSize(76, 76)
-            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            grid.addWidget(b, i // 3, i % 3, Qt.AlignmentFlag.AlignCenter)
-        box.addLayout(grid)
+        box.addSpacing(4)
+        self._build_input(box, key)
         self.error = label("", "warning")
         self.error.hide()
         box.addWidget(self.error)
         self.confirm_button = button("işi bitir" if self.action == "end" else "işe başla",
                                      self.confirm, True)
-        self.confirm_button.setMinimumHeight(52)
-        box.addSpacing(6)
+        self.confirm_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         box.addWidget(self.confirm_button)
-        box.addWidget(button("vazgeç", self.reject, name="ghost"), 0, Qt.AlignmentFlag.AlignHCenter)
-        self.pin.returnPressed.connect(self.confirm)
+        cancel = button("vazgeç", self.reject, name="ghost")
+        cancel.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        box.addWidget(cancel, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.setFixedWidth(max(340, key * 3 + int(key * 0.32) * 2 + 56))
         # Short-lived PIN screen, even if nobody presses a button.
         QTimer.singleShot(60_000, self, self.reject)
-
-    def press(self, text):
-        if text == "Temizle":
-            self.pin.clear()
-        elif text == "Sil":
-            self.pin.backspace()
-        else:
-            self.pin.insert(text)
-            if len(self.pin.text()) == PIN_LENGTH and not self._submit_pending:
-                # Submit on the last digit; the short pause lets the last dot pop in.
-                self._submit_pending = True
-                QTimer.singleShot(160, self, self.confirm)
 
     def confirm(self):
         self._submit_pending = False
@@ -388,6 +446,78 @@ class PinDialog(QDialog):
     def done(self, result):
         self.pin.clear()
         super().done(result)
+
+
+class CodeDialog(KeypadInput, QDialog):
+    """Admin code entry with the same compact keypad (no OS touch keyboard).
+
+    `steps` are the prompts shown one after another (e.g. new code, repeat);
+    `submit` receives the list of entered codes and returns the result value.
+    """
+    def __init__(self, title, steps, submit, parent=None, note=""):
+        QDialog.__init__(self, parent)
+        self.setWindowTitle(title)
+        self.steps, self.submit, self.codes = steps, submit, []
+        self.result_value = None
+        self.result_sid = None
+        box = QVBoxLayout(self)
+        box.setContentsMargins(28, 22, 28, 20)
+        box.setSpacing(8)
+        box.addWidget(label(title, "h2"))
+        self.prompt = label(steps[0], "subtitle")
+        box.addWidget(self.prompt)
+        if note:
+            box.addWidget(label(note, "faint"))
+        box.addSpacing(4)
+        self._build_input(box, 58)
+        self.error = label("", "warning")
+        self.error.hide()
+        box.addWidget(self.error)
+        cancel = button("vazgeç", self.reject, name="ghost")
+        cancel.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        box.addWidget(cancel, 0, Qt.AlignmentFlag.AlignHCenter)
+        self.setFixedWidth(360)
+
+    def confirm(self):
+        self._submit_pending = False
+        code = self.pin.text()
+        if not code:
+            return
+        self.codes.append(code)
+        self.pin.clear()
+        if len(self.codes) < len(self.steps):
+            self.prompt.setText(self.steps[len(self.codes)])
+            self.error.hide()
+            return
+        try:
+            self.result_value = self.submit(self.codes)
+            self.accept()
+        except AppError as exc:
+            self.codes = []
+            self.prompt.setText(self.steps[0])
+            self.error.setText(str(exc))
+            self.error.show()
+            self.dots.set_filled(0, error=True)
+
+    def done(self, result):
+        self.pin.clear()
+        self.codes = []
+        super().done(result)
+
+
+def admin_login_dialog(service, parent=None):
+    return CodeDialog("Yönetici girişi", ["yönetici şifresini gir"],
+                      lambda codes: service.login_admin(codes[0]), parent)
+
+
+def setup_dialog(service, parent=None):
+    def submit(codes):
+        if codes[0] != codes[1]:
+            raise AppError("Şifreler aynı değil. Baştan girin.")
+        service.setup(codes[0])
+        return True
+    return CodeDialog("İlk kurulum", ["4 haneli yönetici şifresi belirle", "aynı şifreyi tekrar gir"],
+                      submit, parent, "1111 ya da 1234 gibi kolay şifreler kabul edilmez.")
 
 
 class EmployeeDialog(FormDialog):
@@ -559,10 +689,14 @@ class FilterBar(QWidget):
         start = today - timedelta(days=29)
         self.first = QDateEdit(QDate(start.year, start.month, start.day))
         self.last = QDateEdit(QDate(today.year, today.month, today.day))
+        prev, nxt = day_buttons(self.first, self.last, on_apply)
+        row.addWidget(prev)
         for w in (self.first, self.last):
             w.setCalendarPopup(True)
             w.setDisplayFormat("dd.MM.yyyy")
             row.addWidget(w)
+        row.addWidget(nxt)
+        row.addWidget(button("son 30 gün", lambda: self.last_30(on_apply), name="chip"))
         self.employee = QComboBox()
         self.employee.addItem("Tüm personel", None)
         for e in service.employees(token):
@@ -573,6 +707,13 @@ class FilterBar(QWidget):
             row.addWidget(self.review)
         row.addWidget(button("Filtrele", on_apply))
         row.addStretch()
+
+    def last_30(self, on_apply):
+        today = self.service.business_day(self.service.clock.wall())
+        start = today - timedelta(days=29)
+        self.first.setDate(QDate(start.year, start.month, start.day))
+        self.last.setDate(QDate(today.year, today.month, today.day))
+        on_apply()
 
     def sync_employees(self, rows):
         """Keep the employee list current without losing the selection."""
@@ -610,8 +751,8 @@ class AdminDialog(QDialog):
         self.service, self.token = service, token
         self.last_input = time.monotonic()
         self.setWindowTitle("Yönetici paneli")
-        self.resize(1240, 820)
-        self.setMinimumSize(980, 660)
+        self.setMinimumSize(760, 520)
+        fit_to_screen(self, 1240, 820)
         outer = QHBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
@@ -682,7 +823,7 @@ class AdminDialog(QDialog):
         self.service.logout(self.token)
         super().done(result)
 
-    def tab(self, title, subtitle="", scroll=False):
+    def tab(self, title, subtitle="", scroll=True):
         page = QWidget()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(34, 28, 34, 24)
@@ -761,8 +902,11 @@ class AdminDialog(QDialog):
         for w in (self.first, self.last):
             w.setCalendarPopup(True)
             w.setDisplayFormat("dd.MM.yyyy")
+        prev, nxt = day_buttons(self.first, self.last, self.calculate)
+        dates.addWidget(prev)
         dates.addWidget(self.first)
         dates.addWidget(self.last)
+        dates.addWidget(nxt)
         dates.addWidget(button("bugün", self.today, name="chip"))
         dates.addWidget(button("bu ay", self.this_month, name="chip"))
         dates.addStretch()
@@ -1079,8 +1223,8 @@ class AdminDialog(QDialog):
             QMessageBox.StandardButton.No)
         if choice != QMessageBox.StandardButton.Yes:
             return
-        dialog = PasswordDialog("Kurtarma için yönetici doğrulaması", self,
-                                submit=lambda pw: (self.service._authenticate("admin", pw), pw)[1])
+        dialog = CodeDialog("Kurtarma için yönetici doğrulaması", ["yönetici şifresini gir"],
+                            lambda codes: (self.service._authenticate("admin", codes[0]), codes[0])[1], self)
         if not dialog.exec():
             return
         self.service.require_admin(self.token)
@@ -1122,25 +1266,17 @@ class AdminDialog(QDialog):
 
     @guarded
     def change_password(self):
-        dlg = FormDialog("Yönetici şifresini değiştir", self)
-        old, new, repeat = secret_edit(), code_edit(), code_edit()
-        dlg.form.addRow("Mevcut şifre", old)
-        dlg.form.addRow("Yeni şifre", new)
-        dlg.form.addRow("Yeni şifre tekrar", repeat)
-
-        @guarded
-        def save(_dialog):
-            if new.text() != repeat.text():
-                raise AppError("Yeni şifreler aynı değil.")
-            self.service.change_password(self.token, old.text(), new.text())
-            old.clear()
-            new.clear()
-            repeat.clear()
-            dlg.accept()
+        def submit(codes):
+            old, new, repeat = codes
+            if new != repeat:
+                raise AppError("Yeni şifreler aynı değil. Baştan girin.")
+            self.service.change_password(self.token, old, new)
+            return True
+        dlg = CodeDialog("Yönetici şifresini değiştir",
+                         ["mevcut şifreni gir", "yeni 4 haneli şifreyi gir", "yeni şifreyi tekrar gir"],
+                         submit, self, "Değişiklikten sonra yeniden giriş yapmanız gerekir.")
+        if dlg.exec():
             self.accept()
-        dlg.buttons.accepted.connect(lambda: save(dlg))
-        dlg.finished.connect(lambda _: [field.clear() for field in (old, new, repeat)])
-        dlg.exec()
 
     @guarded
     def audit_detail(self):
@@ -1175,7 +1311,7 @@ class MainWindow(QMainWindow):
         self.today_seconds = {}
         self.setWindowTitle("Ó'is · Vardiya")
         self.resize(1180, 800)
-        self.setMinimumSize(780, 600)
+        self.setMinimumSize(640, 480)
         root = Backdrop()
         self.setCentralWidget(root)
         box = QVBoxLayout(root)
@@ -1188,8 +1324,10 @@ class MainWindow(QMainWindow):
         self.greeting = label("", "subtitle")
         self.clock_label = QLabel("")
         self.clock_label.setObjectName("display")
+        self.inside_label = label("", "insideCount")
         left.addWidget(self.greeting)
         left.addWidget(self.clock_label)
+        left.addWidget(self.inside_label)
         top.addLayout(left)
         top.addStretch()
         right = QVBoxLayout()
@@ -1215,6 +1353,7 @@ class MainWindow(QMainWindow):
         self.search.setPlaceholderText("ara")
         self.search.setFixedWidth(240)
         self.search.setClearButtonEnabled(True)
+        self.search.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.search.textChanged.connect(self.render_people)
         row.addWidget(self.search)
         box.addLayout(row)
@@ -1288,6 +1427,8 @@ class MainWindow(QMainWindow):
         local = datetime.fromtimestamp(now, self.service.zone)
         self.clock_label.setText(f"{local:%H:%M}")
         self.greeting.setText(th.greeting(local, self.service.business_day(now)))
+        inside = sum(1 for e in getattr(self, "people", []) if e["session_id"])
+        self.inside_label.setText(f"içeride {inside} kişi" if inside else "şu an içeride kimse yok")
 
     def eventFilter(self, watched, event):
         if (event.type() == QEvent.Type.Resize and watched is self.scroll.viewport()
@@ -1324,7 +1465,8 @@ class MainWindow(QMainWindow):
             ring.set_person(state, progress, th.initials(employee["name"]),
                             names.get(employee["id"], th.tr_lower(employee["name"])), subtitle, description)
             ring.setToolTip(employee["name"] + f" · personel no {employee['id']}")
-            ring.clicked.connect(lambda checked=False, e=employee: self.attendance(e))
+            ring.clicked.connect(lambda checked=False, e=employee: QTimer.singleShot(
+                170, self, lambda: self.attendance(e)))
             self.grid.addWidget(ring, i // self.columns, i % self.columns)
         if not people:
             self.grid.addWidget(label("Personel bulunamadı. İlk personeli yönetici panelinden ekleyin."
@@ -1409,14 +1551,16 @@ class MainWindow(QMainWindow):
         summary = self.service.staff_summary(employee["id"], dialog.result_sid) if dialog.result_sid else {}
         month = th.hours_text(summary.get("month_seconds", 0))
         now = datetime.fromtimestamp(self.service.clock.wall(), self.service.zone)
+        note = ""
         if dialog.action == "start":
             state, title = "in", f"hoş geldin, {first}"
-            subtitle, note = f"giriş {now:%H:%M} · bu ay {month}", "şapka yandı, iyi servisler"
+            subtitle = f"giriş {now:%H:%M} · bu ay {month}"
             status = f"{first} giriş yaptı · {now:%H:%M}"
         else:
             state, title = "out", f"görüşürüz, {first}"
-            subtitle = f"bugün {th.hours_text(summary.get('session_seconds', 0))} · bu ay {month}"
-            note, status = "eline sağlık", f"{first} çıkış yaptı · {now:%H:%M}"
+            subtitle = (f"çıkış {now:%H:%M} · bugün {th.hours_text(summary.get('session_seconds', 0))}"
+                        f" · bu ay {month}")
+            status = f"{first} çıkış yaptı · {now:%H:%M}"
         if dialog.forgotten:
             note = "gerçek çıkış saatini yönetici girecek"
         elif self.service.clock_status()[0]:
@@ -1426,7 +1570,7 @@ class MainWindow(QMainWindow):
 
     @guarded
     def admin(self):
-        dialog = PasswordDialog("Yönetici girişi", self, submit=self.service.login_admin)
+        dialog = admin_login_dialog(self.service, self)
         if dialog.exec():
             AdminDialog(self.service, dialog.result_value, self).exec()
             if not self.restoring:

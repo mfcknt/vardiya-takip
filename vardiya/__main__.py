@@ -64,7 +64,7 @@ def main():
             print(f"Kurtarma tamamlandı. Önceki veriler: {archive}")
             return 0
         from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
-        from .ui import MainWindow, PasswordDialog, apply_theme
+        from .ui import CodeDialog, MainWindow, apply_theme, setup_dialog
         app = QApplication(sys.argv[:1])
         app.setApplicationName("VardiyaTakip")
         app.setApplicationDisplayName("Ó'is · Vardiya")
@@ -82,20 +82,19 @@ def main():
             source, _ = QFileDialog.getOpenFileName(None, "Yedek seç", "", "SQLite (*.sqlite3)")
             if not source:
                 return 1
-            def recover(password):
-                return restore_database(Path(source), db_path, password)
-            dialog = PasswordDialog("Yedekteki yönetici şifresiyle kurtar", submit=recover)
+            dialog = CodeDialog("Yedekteki yönetici şifresiyle kurtar", ["yönetici şifresini gir"],
+                                lambda codes: restore_database(Path(source), db_path, codes[0]))
             if not dialog.exec():
                 return 1
             db = Database(db_path)
         service = Service(db)
         apply_theme(app, service.theme)
         if not service.configured:
-            dialog = PasswordDialog("İlk kurulum · Yönetici şifresi", setup=True, submit=service.setup)
+            dialog = setup_dialog(service)
             if not dialog.exec():
                 return 0
         window = MainWindow(service)
-        window.show()
+        window.showMaximized()      # the kiosk fills the screen on any resolution
         result = app.exec()
         if not window.restoring:
             try:
