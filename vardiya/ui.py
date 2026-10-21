@@ -710,7 +710,7 @@ class FilterBar(QWidget):
         self._apply = QTimer(self)
         self._apply.setSingleShot(True)
         self._apply.setInterval(200)
-        self._apply.timeout.connect(lambda: on_apply() if self.isVisible() else None)
+        self._apply.timeout.connect(lambda: on_apply() if self.window().isVisible() else None)
         for edit in (self.first, self.last):
             edit.dateChanged.connect(self._apply.start)
         self.employee.currentIndexChanged.connect(self._apply.start)
