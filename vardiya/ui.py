@@ -137,13 +137,15 @@ ACTION_NAMES = {
     "SESSION_MANUAL": "Kayıt eklendi", "SESSION_CORRECT": "Kayıt düzeltildi",
     "SESSION_VOID": "Kayıt iptal", "PAYMENT_ADD": "Ödeme eklendi", "PAYMENT_VOID": "Ödeme iptal",
     "RESTORE": "Yedekten kurtarma", "SESSION_FLAG": "Çıkış unutuldu", "SETTING_CHANGE": "Ayar değişti",
+    "SCHEMA_UPGRADE": "Veri şeması güncellendi",
 }
 AUDIT_SCREEN_LIMIT = 1000
 
 
 # Audit actors/entities are stored as "admin", "staff:5", "session:32"...; screens show words.
 AUDIT_NAMES = {"admin": "Yönetici", "system": "Sistem", "clock": "Saat", "theme": "Tema",
-               "day_start_hour": "İş günü saati", "session": "Kayıt", "payment": "Ödeme"}
+               "day_start_hour": "İş günü saati", "session": "Kayıt", "payment": "Ödeme",
+               "schema": "Veri şeması"}
 
 
 def action_name(code):

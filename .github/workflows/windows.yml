@@ -118,6 +118,39 @@ jobs:
           if (-not (Test-Path (Join-Path $data "vardiya.sqlite3"))) { Write-Host "::error title=Kurulum::Kaldırma veriyi sildi"; exit 1 }
           Write-Host "::notice title=Kurulum::Sessiz kurulum, kurulu .exe ve kaldırma doğrulandı; veri korundu"
           exit 0
+      - name: Upgrade over previous release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # The release still holds the previous build here; it is replaced only at the end.
+          function Fail($message) { Write-Host "::error title=Güncelleme::$($message -replace '%', '%25')"; exit 1 }
+          $prev = Join-Path $env:RUNNER_TEMP "previous"
+          gh release download son-surum -p VardiyaTakip-Kurulum.exe -D $prev 2>&1 | Out-Null
+          if ($LASTEXITCODE -ne 0) { Write-Host "::notice title=Güncelleme::Önceki sürüm yok; test atlandı"; exit 0 }
+          $flags = "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER"
+          $p = Start-Process (Join-Path $prev "VardiyaTakip-Kurulum.exe") -ArgumentList $flags -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Fail "Önceki sürüm kurulamadı ($($p.ExitCode))" }
+          # Real default data folder, filled with the oldest committed data file.
+          $data = Join-Path $env:LOCALAPPDATA "VardiyaTakip"
+          New-Item -ItemType Directory -Force $data | Out-Null
+          Copy-Item tests\fixtures\sema-v2.sqlite3 (Join-Path $data "vardiya.sqlite3")
+          $before = (Get-FileHash (Join-Path $data "vardiya.sqlite3")).Hash
+          $p = Start-Process dist\VardiyaTakip-Kurulum.exe -ArgumentList $flags -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Fail "Yeni sürüm eskisinin üzerine kurulamadı ($($p.ExitCode))" }
+          $app = Join-Path $env:LOCALAPPDATA "Programs\VardiyaTakip"
+          $tool = Join-Path $app "VardiyaBakim.exe"
+          if ((Get-FileHash $tool).Hash -ne (Get-FileHash dist\VardiyaTakip\VardiyaBakim.exe).Hash) { Fail "Program dosyaları yenilenmedi" }
+          if ((Get-FileHash (Join-Path $data "vardiya.sqlite3")).Hash -ne $before) { Fail "Kurulum veri dosyasını değiştirdi" }
+          $out = & $tool --upgrade 2>&1
+          if ($LASTEXITCODE -ne 0) { Fail "Veri güncellenemedi: $out" }
+          $check = & $tool --check 2>&1
+          if ($LASTEXITCODE -ne 0) { Fail "Güncellenen veri doğrulanamadı: $check" }
+          $u = Start-Process (Join-Path $app "unins000.exe") -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
+          Start-Sleep -Seconds 3
+          if (-not (Test-Path (Join-Path $data "vardiya.sqlite3"))) { Fail "Kaldırma veriyi sildi" }
+          Write-Host "::notice title=Güncelleme::Önceki sürümün üzerine kuruldu; eski veri korundu ve doğrulandı ($out)"
+          exit 0
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4

@@ -41,7 +41,8 @@ python -m pytest -q
 | Süreç kilidi | İkinci uygulamanın engellenmesi ve kapanışta kilidin serbest kalması |
 | CSV/XLSX | Unicode, doğru tutar/bakiye, formül enjeksiyonu önleme, negatif sayısal bakiye |
 | Dışa aktarma hatası | Başarısız yeni rapor eski dosyayı bozmaz |
-| Şema | Bilinmeyen veritabanı şeması sessizce değiştirilmez |
+| Şema | Bilinmeyen veritabanı şeması sessizce değiştirilmez; her eski sürüm dosyası (`tests/fixtures`) güncellenir ve verisi korunur; eski dosya saklanır; başarısız güncelleme, daha yeni sürüm dosyası ve eski yedekten kurtarma; `--check`/`--upgrade` |
+| Güncelleme (CI) | Önceki yayımlanmış sürüm kurulur, eski veri eklenir, yeni sürüm üstüne kurulur; veri değişmeden kalır, `--upgrade` ve `--check` geçer |
 | Qt arayüzü | PIN düğmeleri, giriş/çıkış, iptal, yanlış PIN, arama, yönetici sekmeleri ve kapanma |
 | Performans | 3 yıl × 30 personel veride çakışma denetimi < 0,5 sn; günlük yedek süreç başına bir kez doğrulanır |
 | Çakışma algoritması | Yeni sıralı tarama, eski self-join ile 400 rastgele veri kümesinde ve kenar durumlarında aynı sonucu verir |

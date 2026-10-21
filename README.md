@@ -174,6 +174,7 @@ Test verisini gerçek kayıtlardan ayırmak için:
 ```sh
 python -m vardiya --data-dir ./deneme-verisi
 python -m vardiya --data-dir ./deneme-verisi --check
+python -m vardiya --data-dir ./deneme-verisi --upgrade
 python -m vardiya --data-dir ./deneme-verisi --restore ./yedek.sqlite3
 ```
 

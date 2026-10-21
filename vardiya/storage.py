@@ -1,15 +1,22 @@
 import hashlib
 import json
 import os
+import shutil
 import sqlite3
 import sys
 import tempfile
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .security import AppError
 
 SCHEMA_VERSION = 2
+# Upgrade steps: MIGRATIONS[n] turns a version-n database into version n+1.
+# On a schema change: change SCHEMA (new databases), bump SCHEMA_VERSION and add
+# the step here. Never edit a released step; tests/fixtures holds real old files.
+OLDEST_SUPPORTED = 2
+MIGRATIONS: dict[int, str] = {}
 SCHEMA = """
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE credentials(
@@ -81,6 +88,102 @@ OVERLAP_SQL = """SELECT 1 FROM (
   WHERE previous_end > start_at LIMIT 1"""
 
 
+def schema_version(path: Path) -> int:
+    conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+    try:
+        return conn.execute("PRAGMA user_version").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def check_upgradable(version: int) -> None:
+    if version > SCHEMA_VERSION:
+        raise AppError("Bu veri dosyası programın daha yeni bir sürümüyle kaydedilmiş. "
+                       "Programın güncel sürümünü kurun; veri değiştirilmedi.")
+    if version < OLDEST_SUPPORTED or any(v not in MIGRATIONS for v in range(version, SCHEMA_VERSION)):
+        raise AppError(f"Veri şeması (sürüm {version}) bu programla güncellenemiyor; veri değiştirilmedi.")
+
+
+def upgraded_copy(source: Path, target: Path) -> int:
+    """Copy `source` into the empty file `target` and bring the copy to SCHEMA_VERSION.
+
+    All steps and their audit entry commit together; `source` is never written.
+    Returns the source's version. The caller verifies `target` before using it.
+    """
+    version = schema_version(source)
+    check_upgradable(version)
+    src = sqlite3.connect(Path(source).resolve().as_uri() + "?mode=ro", uri=True)
+    dst = sqlite3.connect(target, isolation_level=None)
+    try:
+        src.backup(dst)
+        if version < SCHEMA_VERSION:
+            steps = "\n".join(MIGRATIONS[step] for step in range(version, SCHEMA_VERSION))
+            try:
+                # executescript leaves the transaction it began open for the audit entry.
+                dst.executescript(f"BEGIN IMMEDIATE;\n{steps}\nPRAGMA user_version={SCHEMA_VERSION};")
+                append_audit(dst, int(datetime.now(timezone.utc).timestamp()), "system", "SCHEMA_UPGRADE",
+                             "schema", {"version": version}, {"version": SCHEMA_VERSION},
+                             "Program güncellendi; veri şeması yükseltildi.")
+                dst.execute("COMMIT")
+            except BaseException:
+                if dst.in_transaction:
+                    dst.execute("ROLLBACK")
+                raise
+    except sqlite3.Error as exc:
+        raise AppError(f"Veri şeması güncellenemedi ({type(exc).__name__}); veri değiştirilmedi.") from exc
+    finally:
+        src.close()
+        dst.close()
+    fsync_file(target)
+    return version
+
+
+def upgrade_database(path: Path):
+    """Upgrade an older database file in place; no-op when current.
+
+    The upgrade is built and verified in a staging copy, the original is kept
+    in backups/ as "guncelleme-oncesi-v<n>-…", and only then replaces the file.
+    Returns the kept copy (or None when nothing was upgraded).
+    """
+    path = Path(path)
+    version = schema_version(path)
+    if version == SCHEMA_VERSION:
+        return None
+    check_upgradable(version)
+    fd, staging = tempfile.mkstemp(prefix=".upgrade-", suffix=".sqlite3", dir=path.parent)
+    os.close(fd)
+    try:
+        upgraded_copy(path, Path(staging))
+        errors = inspect_database(Path(staging))
+        if errors:
+            raise AppError("Güncellenen veri doğrulanamadı; veri değiştirilmedi: " + "; ".join(errors))
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")
+        kept = path.parent / "backups" / f"guncelleme-oncesi-v{version}-{stamp}.sqlite3"
+        kept.parent.mkdir(parents=True, exist_ok=True)
+        # Byte-for-byte: the caller holds FileLock and the journal is already recovered.
+        shutil.copyfile(path, kept)
+        fsync_file(kept)
+        kept.with_suffix(kept.suffix + ".sha256").write_text(
+            hashlib.sha256(kept.read_bytes()).hexdigest() + "  " + kept.name + "\n", encoding="utf-8")
+        os.replace(staging, path)
+        return kept
+    finally:
+        if os.path.exists(staging):
+            os.unlink(staging)
+
+
+def append_audit(conn, at, actor, action, entity, before=None, after=None, reason=""):
+    """Append one entry to the hashed audit chain (inside the caller's transaction)."""
+    previous = conn.execute("SELECT hash FROM audit ORDER BY id DESC LIMIT 1").fetchone()
+    previous = previous[0] if previous else "0" * 64
+    values = [at, actor, action, entity, canonical(before), canonical(after), reason]
+    conn.execute(
+        """INSERT INTO audit(at,actor,action,entity,before_json,after_json,reason,
+           previous_hash,hash) VALUES(?,?,?,?,?,?,?,?,?)""",
+        (*values, previous, audit_hash(previous, values)),
+    )
+
+
 def canonical(value) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
@@ -120,6 +223,7 @@ class Database:
     def __init__(self, path: Path):
         self.path = Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.upgraded_from = None
         exists = self.path.exists()
         if not exists:
             # Publish only a committed schema, so an interrupted first launch
@@ -147,6 +251,7 @@ class Database:
                 probe.execute("PRAGMA user_version").fetchone()
             finally:
                 probe.close()
+            self.upgraded_from = upgrade_database(self.path)
             errors = inspect_database(self.path)
             if errors:
                 raise AppError("Veritabanı açılamadı: " + "; ".join(errors))
@@ -183,14 +288,7 @@ class Database:
         )
 
     def audit(self, at, actor, action, entity, before=None, after=None, reason=""):
-        previous = self.conn.execute("SELECT hash FROM audit ORDER BY id DESC LIMIT 1").fetchone()
-        previous = previous[0] if previous else "0" * 64
-        values = [at, actor, action, entity, canonical(before), canonical(after), reason]
-        self.conn.execute(
-            """INSERT INTO audit(at,actor,action,entity,before_json,after_json,reason,
-               previous_hash,hash) VALUES(?,?,?,?,?,?,?,?,?)""",
-            (*values, previous, audit_hash(previous, values)),
-        )
+        append_audit(self.conn, at, actor, action, entity, before, after, reason)
 
 
 SNAPSHOT_DEFAULTS = {"active": 1, "voided": 0, "review": ""}
@@ -203,7 +301,10 @@ def inspect_database(path: Path) -> list[str]:
         conn = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
         try:
             conn.execute("BEGIN")
-            if conn.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION:
+            version = conn.execute("PRAGMA user_version").fetchone()[0]
+            if OLDEST_SUPPORTED <= version < SCHEMA_VERSION:
+                return [f"Veri şeması eski (sürüm {version}); program açıldığında güncellenir."]
+            if version != SCHEMA_VERSION:
                 return ["Desteklenmeyen veya eksik veri şeması."]
             result = conn.execute("PRAGMA integrity_check").fetchall()
             if result != [("ok",)]:

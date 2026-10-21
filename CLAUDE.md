@@ -45,11 +45,12 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
   **annotations** (`gh api repos/mfcknt/vardiya-takip/check-runs/<job>/annotations`).
   Screenshots are force-pushed to branch `ci-screenshots`; review them visually before reporting UI work.
 - Qt stylesheet rules override `setFont`; style labels through object names in `theme.stylesheet`.
-- Schema changes need a migration plan once real data exists (currently none in production).
+- Schema changes: before changing, commit an old-version file as `tests/fixtures/sema-v<n>.sqlite3`;
+  then change `SCHEMA`, bump `SCHEMA_VERSION`, add `MIGRATIONS[n]` (see docs/TEKNIK.md). Never edit a released step.
 - Commit messages in Turkish.
 
 ## Open items discussed but not done
 
-Off-machine backup (USB reminder/copy), admin recovery key, schema migration framework,
+Off-machine backup (USB reminder/copy), admin recovery key,
 period closing (lock paid months; also speeds up reports), compressed backups, background
 heavy work, staff self-view, payment receipts, code signing.

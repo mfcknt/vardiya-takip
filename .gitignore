@@ -14,3 +14,4 @@ screenshots/
 crash-report.txt
 test-progress.txt
 hang-report.txt
+!tests/fixtures/*.sqlite3

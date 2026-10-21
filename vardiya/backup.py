@@ -8,7 +8,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .security import AppError, verify_secret
-from .storage import fsync_file, inspect_database
+from . import storage
+from .storage import fsync_file, inspect_database, schema_version, upgraded_copy
 
 AUTO_PREFIX, CLOSE_PREFIX = "otomatik-", "kapanis-"
 KEEP_DAILY, KEEP_CLOSING = 30, 20
@@ -121,15 +122,32 @@ def restore_database(source: Path, destination: Path, password: str):
     source, destination = Path(source), Path(destination)
     if source.resolve() == destination.resolve():
         raise AppError("Kaynak yedek ile hedef aynı olamaz.")
-    errors = inspect_database(source)
-    if errors:
-        raise AppError("Yedek geçersiz: " + "; ".join(errors))
     checksum = source.with_suffix(source.suffix + ".sha256")
     if checksum.exists():
         parts = checksum.read_text(encoding="utf-8").split()
         expected = parts[0] if parts else ""
         if hashlib.sha256(source.read_bytes()).hexdigest() != expected:
             raise AppError("Yedek dosyasının SHA-256 doğrulaması başarısız.")
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    upgraded = None
+    try:
+        if schema_version(source) < storage.SCHEMA_VERSION:
+            # A backup from an older program version: restore an upgraded copy.
+            fd, upgraded = tempfile.mkstemp(prefix=".upgrade-", suffix=".sqlite3", dir=destination.parent)
+            os.close(fd)
+            upgraded_copy(source, Path(upgraded))
+        return _restore_verified(source, Path(upgraded) if upgraded else source, destination, password)
+    except sqlite3.Error as exc:
+        raise AppError(f"Yedek okunamadı ({type(exc).__name__}).") from exc
+    finally:
+        if upgraded and os.path.exists(upgraded):
+            os.unlink(upgraded)
+
+
+def _restore_verified(original: Path, source: Path, destination: Path, password: str):
+    errors = inspect_database(source)
+    if errors:
+        raise AppError("Yedek geçersiz: " + "; ".join(errors))
     authority = destination if destination.exists() and not inspect_database(destination) else source
     auth = sqlite3.connect(authority.resolve().as_uri() + "?mode=ro", uri=True)
     try:
@@ -138,7 +156,6 @@ def restore_database(source: Path, destination: Path, password: str):
             raise AppError("Kurtarma için yönetici şifresi doğrulanamadı.")
     finally:
         auth.close()
-    destination.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=".restore-", suffix=".sqlite3", dir=destination.parent)
     os.close(fd)
     try:
@@ -157,7 +174,7 @@ def restore_database(source: Path, destination: Path, password: str):
             with staged.transaction():
                 now = int(datetime.now(timezone.utc).timestamp())
                 staged.audit(now, "admin", "RESTORE", "system",
-                             after={"source": source.name},
+                             after={"source": original.name},
                              reason="Yedekten kurtarıldı; saat ve açık kayıtları inceleyin.")
                 staged.set_meta("clock_alert", "Yedekten dönüldü; saat ve açık kayıtları inceleyin.")
         finally:

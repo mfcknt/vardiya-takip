@@ -37,13 +37,15 @@ def main():
                         help="Yerel veri klasörü (ağ/senkronizasyon klasörü kullanmayın)")
     parser.add_argument("--restore", type=Path, help="Uygulama kapalıyken yedekten kurtar")
     parser.add_argument("--check", action="store_true", help="Veri bütünlüğünü denetle")
+    parser.add_argument("--upgrade", action="store_true",
+                        help="Eski sürüm veriyi güncelle (program açılınca da kendiliğinden yapılır)")
     args = parser.parse_args()
     directory = args.data_dir.resolve()
     db_path = directory / "vardiya.sqlite3"
     try:
         lock = FileLock(directory)
     except (AppError, OSError) as exc:
-        if not args.check and not args.restore:
+        if not args.check and not args.restore and not args.upgrade:
             from PySide6.QtWidgets import QApplication, QMessageBox
             app = QApplication(sys.argv[:1])
             QMessageBox.warning(None, "Vardiya Takip", str(exc))
@@ -58,6 +60,14 @@ def main():
             errors = inspect_database(db_path)
             print("\n".join(errors) if errors else "Bütünlük kontrolü: sağlam.")
             return int(bool(errors))
+        if args.upgrade:
+            if not db_path.exists():
+                print("Veri dosyası bulunamadı.", file=sys.stderr)
+                return 1
+            db = Database(db_path)
+            print(f"Veri şeması güncellendi. Önceki dosya: {db.upgraded_from}" if db.upgraded_from
+                  else "Veri şeması zaten güncel.")
+            return 0
         if args.restore:
             password = getpass.getpass("Yönetici şifresi: ")
             archive = restore_database(args.restore.resolve(), db_path, password)

@@ -86,7 +86,21 @@ Bütünlük denetimi `PRAGMA integrity_check`, `foreign_key_check`, zaman çakı
 personelin kimlik bilgisi varlığı, işlem zinciri ve son işlem görüntüsünün personel/çalışma/ödeme
 kayıtlarıyla tutarlılığını kontrol eder. Bu kontroller açılışta, elle ve yeni yedek üzerinde uygulanır.
 
-Şema sürümü 2’dir; sürüm 1 dosyaları açılmaz (gerçek veri öncesi değişiklik, migration yoktur).
+Şema sürümü 2’dir (sürüm 1 gerçek veri öncesindendi ve açılmaz).
+
+### Şema güncellemeleri
+
+`storage.MIGRATIONS[n]`, sürüm n dosyasını n+1’e taşıyan SQL’dir. Şema değişince: `SCHEMA` (yeni
+dosyalar) değiştirilir, `SCHEMA_VERSION` artırılır, adım eklenir. Yayımlanmış adım sonradan değiştirilmez.
+Değişiklikten **önce** eski sürümle üretilmiş bir dosya `tests/fixtures/sema-v<n>.sqlite3` olarak eklenir;
+`tests/test_migrations.py` her eski dosyanın güncel programla açılıp verinin korunduğunu denetler.
+
+Program eski bir dosyayı açınca (veya `--upgrade`): dosya geçici kopyaya alınır, tüm adımlar ve
+`SCHEMA_UPGRADE` işlem kaydı tek işlemde uygulanır, kopya tam bütünlük denetiminden geçer, eski dosya
+olduğu gibi `backups/guncelleme-oncesi-v<n>-….sqlite3` (SHA-256 ile) saklanır ve ancak sonra yeni dosya
+atomik olarak yerine konur. Herhangi bir hata veri dosyasını değiştirmez. Daha yeni bir programın dosyası
+açılmaz (eski programa geri dönülürse veri bozulmaz). Eski sürüm bir yedekten kurtarma, yedeğin
+güncellenmiş kopyasıyla yapılır; yedek dosyası değişmez.
 
 Yedek doğrudan SQLite Backup API ile geçici dosyaya yazılır. Dosyalar yazılabilir tanıtıcıyla fsync edilir
 (Windows `FlushFileBuffers` salt okunur tanıtıcıyı reddeder). Ana ekran günlük yedeği süreç başına bir kez

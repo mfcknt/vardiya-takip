@@ -39,6 +39,7 @@ Bakım örneği:
 
 ```powershell
 .\VardiyaBakim.exe --check
+.\VardiyaBakim.exe --upgrade
 .\VardiyaBakim.exe --restore "D:\Yedekler\vardiya.sqlite3"
 ```
 
@@ -83,8 +84,9 @@ Son kullanıcı için EXE klasör paketi daha az kurulum adımı gerektirir.
 - Disk doluluğu, yazma izni ve UPS/elektrik kesintisi koşullarını gerçek donanımda değerlendirin.
 
 Programı normal Windows hesabıyla açın. Verilerin bulunduğu kullanıcı hesabını değiştirmeyin.
-Yeni sürüm yüklemeden önce yönetici panelinden yedek alın. Bu sürüm yalnızca şema sürümü 2’yi açar;
-gelecekteki şema yükseltmeleri için ayrıca migration ve geri dönüş planı gerekir.
+Yeni sürüm yüklemeden önce yönetici panelinden yedek alın. Yeni sürüm eski veriyi açılışta kendisi
+günceller ve eski dosyayı `backups\guncelleme-oncesi-…` olarak saklar. Önceki programa dönmek gerekirse
+önceki sürümü kurup bu dosyadan kurtarın; daha yeni sürümün dosyasını eski program açmaz.
 
 ## Lisanslar
 
