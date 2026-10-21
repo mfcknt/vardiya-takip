@@ -1513,9 +1513,10 @@ class MainWindow(QMainWindow):
         self.inside_label.setText(f"içeride {inside} kişi" if inside else "şu an içeride kimse yok")
 
     def eventFilter(self, watched, event):
-        if (event.type() == QEvent.Type.Resize and watched is self.scroll.viewport()
+        if (event.type() == QEvent.Type.Resize and watched is self.scroll.viewport() and self.isVisible()
                 and hasattr(self, "people") and self.column_count() != self.columns):
-            QTimer.singleShot(0, self.render_people)
+            # Queued: by the time it runs the window may be closed and the database shut.
+            QTimer.singleShot(0, lambda: self.isVisible() and self.render_people())
         return False
 
     def column_count(self):

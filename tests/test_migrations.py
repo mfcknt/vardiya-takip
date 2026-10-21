@@ -137,3 +137,24 @@ def test_maintenance_tool_check_and_upgrade(tmp_path, monkeypatch, capsys, versi
     assert run("--upgrade") == 0 and "zaten güncel" in capsys.readouterr().out
     assert run("--check") == 0 and "sağlam" in capsys.readouterr().out
     assert schema_version(path) == 3
+    import logging
+    for handler in list(logging.getLogger().handlers):      # main() logs into tmp_path
+        if getattr(handler, "baseFilename", "").startswith(str(tmp_path)):
+            logging.getLogger().removeHandler(handler)
+            handler.close()
+
+
+def test_log_file_is_capped(tmp_path, monkeypatch):
+    import logging
+    from vardiya import __main__ as entry
+    monkeypatch.setattr(entry, "LOG_BYTES", 2000)
+    handler = entry.configure_logging(tmp_path)
+    try:
+        for i in range(200):
+            logging.getLogger("vardiya").warning("uyarı %d %s", i, "x" * 50)
+        logs = sorted(p.name for p in tmp_path.glob("application.log*"))
+        assert logs == ["application.log", "application.log.1", "application.log.2", "application.log.3"]
+        assert all(p.stat().st_size <= 2100 for p in tmp_path.glob("application.log*"))
+    finally:
+        logging.getLogger().removeHandler(handler)
+        handler.close()

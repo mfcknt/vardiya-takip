@@ -3,6 +3,7 @@ import getpass
 import logging
 import sqlite3
 import sys
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from .backup import closing_backup, restore_database
@@ -30,6 +31,23 @@ def safe_console():
             pass
 
 
+LOG_BYTES, LOG_KEEP = 1_000_000, 3
+
+
+def configure_logging(directory: Path):
+    """Warnings to application.log, capped at ~4 MB in total (current + 3 older files)."""
+    handler = RotatingFileHandler(directory / "application.log", maxBytes=LOG_BYTES,
+                                  backupCount=LOG_KEEP, encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    root = logging.getLogger()
+    for old in [h for h in root.handlers if isinstance(h, RotatingFileHandler)]:
+        root.removeHandler(old)
+        old.close()
+    root.addHandler(handler)
+    root.setLevel(logging.WARNING)
+    return handler
+
+
 def main():
     safe_console()
     parser = argparse.ArgumentParser(description="Çevrimdışı Vardiya Takip")
@@ -52,8 +70,7 @@ def main():
         else:
             print(str(exc), file=sys.stderr)
         return 1
-    logging.basicConfig(filename=directory / "application.log", level=logging.WARNING,
-                        format="%(asctime)s %(levelname)s %(message)s")
+    configure_logging(directory)
     db = None
     try:
         if args.check:
