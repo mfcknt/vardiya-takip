@@ -3,7 +3,7 @@
 Tarih: 20 Ekim 2026.
 
 Ortamlar:
-- **Windows (GitHub Actions `windows-latest`, x64), Python 3.12** — tüm testler (Qt `offscreen` dâhil),
+- **Windows (GitHub Actions `windows-2025-vs2026` sabit imajı, x64), Python 3.12** — tüm testler (Qt `offscreen` dâhil),
   PyInstaller paketi ve paketlenmiş `VardiyaBakim.exe` duman testi. Her `main` gönderiminde otomatik çalışır.
 - Linux, Python 3.13 — Qt dışındaki testler (geliştirme sırasında).
 - İlk teslim: macOS 27.0.1 / Apple Silicon, Python 3.12.14, SQLite 3.53.1, PySide6 6.10.2.

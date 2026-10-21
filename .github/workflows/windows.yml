@@ -8,13 +8,15 @@ permissions:
   contents: write   # publishes review screenshots and the "son-surum" Windows release
 jobs:
   windows:
-    runs-on: windows-latest
+    # Fixed image: "windows-latest" moves to new Windows/VS versions on GitHub's schedule.
+    # Change deliberately (see github.com/actions/runner-images) and check the whole run.
+    runs-on: windows-2025-vs2026
     env:
       PYTHONUTF8: "1"
       PYTHONIOENCODING: utf-8
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
         with:
           python-version: "3.12"
           architecture: x64
@@ -153,13 +155,13 @@ jobs:
           exit 0
       - name: Upload test results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: test-results
           path: test-results.xml
           if-no-files-found: ignore
       - name: Upload package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: VardiyaTakip-Windows-x64
           path: dist/VardiyaTakip-Windows-x64.zip

@@ -39,7 +39,8 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
 - Tests: `python -m pytest -q` (Qt tests need PySide6; core tests run without it).
   Every behaviour change gets a test. Qt tests run offscreen; conftest has watchdogs that turn
   unexpected `QMessageBox`es, hangs and native crashes into readable failures.
-- CI (`.github/workflows/windows.yml`, Windows) runs tests, screenshots, PyInstaller package,
+- CI (`.github/workflows/windows.yml`, fixed image `windows-2025-vs2026`; actions pinned by commit SHA,
+  update them together on purpose) runs tests, screenshots, PyInstaller package,
   installer build, silent install/uninstall smoke tests, and publishes the `son-surum` release.
   Raw job logs may be unreadable from restricted environments; read results via check-run
   **annotations** (`gh api repos/mfcknt/vardiya-takip/check-runs/<job>/annotations`).
