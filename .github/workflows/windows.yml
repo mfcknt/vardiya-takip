@@ -25,6 +25,17 @@ jobs:
         run: |
           python -m venv .venv
           .\.venv\Scripts\python.exe -m pip install -e ".[test,build]"
+      - name: Check time zone data
+        shell: pwsh
+        run: |
+          # Turkey's rules live in the bundled tzdata; a stale pin means wrong hours after a rule change.
+          $pinned = (Select-String -Path pyproject.toml -Pattern 'tzdata==([0-9.]+)').Matches[0].Groups[1].Value
+          $line = & .\.venv\Scripts\python.exe -m pip index versions tzdata 2>$null | Select-Object -First 1
+          $latest = if ($line -match '\(([0-9.]+)\)') { $Matches[1] } else { "" }
+          if (-not $latest) { Write-Host "::notice title=Saat dilimi::PyPI'ye ulaşılamadı; tzdata $pinned denetlenemedi" }
+          elseif ($latest -ne $pinned) { Write-Host "::warning title=Saat dilimi::tzdata $pinned sabit, $latest yayımlanmış. pyproject.toml'da güncelleyin." }
+          else { Write-Host "::notice title=Saat dilimi::tzdata $pinned güncel" }
+          exit 0
       - name: Test
         id: test
         timeout-minutes: 15

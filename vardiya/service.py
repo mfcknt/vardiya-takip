@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from .security import AppError, hash_secret, validate_password, validate_pin, verify_secret
 from .reports import business_day, midnight
+from .health import Health
 from .storage import Database, canonical
 
 
@@ -92,6 +93,7 @@ class Service:
         self.clock = clock or SystemClock()
         self._tokens = {}
         self._sample = None
+        self.health = Health(db.path)
 
     @property
     def configured(self):

@@ -11,6 +11,7 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
 | `vardiya/storage.py` | SQLite schema (version 2), transactions, append-only hashed audit chain, integrity check |
 | `vardiya/reports.py` | Business-day split, exact money (Fraction → kuruş), CSV/XLSX export |
 | `vardiya/backup.py` | Verified backups, retention, restore |
+| `vardiya/health.py` | Qt-free health checks: integrity (daily), disk space, backup age |
 | `vardiya/security.py` | 4-digit codes (`PIN_LENGTH`), weak-code rules, PBKDF2 |
 | `vardiya/theme.py` | Qt-free: colour tokens (dark/night/light), Turkish casing, stylesheet |
 | `vardiya/widgets.py` | Custom-painted Qt widgets: Ó ring, keypad (RoundKey), timeline, heatmap, welcome |
@@ -49,6 +50,7 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
 - Qt stylesheet rules override `setFont`; style labels through object names in `theme.stylesheet`.
 - Schema changes: before changing, commit an old-version file as `tests/fixtures/sema-v<n>.sqlite3`;
   then change `SCHEMA`, bump `SCHEMA_VERSION`, add `MIGRATIONS[n]` (see docs/TEKNIK.md). Never edit a released step.
+- CI warns when a newer `tzdata` exists; bump the pin in `pyproject.toml` when it does.
 - Commit messages in Turkish.
 
 ## Open items discussed but not done

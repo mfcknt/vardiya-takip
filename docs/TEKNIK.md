@@ -57,6 +57,17 @@ kapanan her kayıt `sessions.review` alanına uyarı metnini alır. Yönetici d�
 Uzun ara bildirimi (`meta.clock_notice`) yalnızca bilgidir. Onay iki durumu da temizler,
 mevcut kayıt saatlerini ve inceleme işaretlerini değiştirmez.
 
+Saat dilimi kuralları programla gelen `tzdata` paketindedir (sürümü `pyproject.toml`’da sabit).
+Türkiye’nin kuralı değişirse yeni program sürümü gerekir; CI, PyPI’de daha yeni bir `tzdata` gördüğünde
+uyarı verir. Uyarı görülünce sürüm yükseltilir ve yayımlanır.
+
+## Sistem sağlığı
+
+`health.py` aylarca kimsenin bakmayacağı durumları yöneticiye söyler: bütünlük denetimi hatası, 500 MB’ın
+altında boş disk, hiç yedek olmaması veya son yedeğin 3 günden eski olması. Bütünlük denetimi açılışta ve
+program açık kaldıkça günde bir kez yinelenir. Sorunlar yönetici “bugün” sayfasının üstünde yazılır;
+kioskta yalnızca “Yönetici için N not var.” sayısına eklenir. Dosya yaşları için gerçek saat kullanılır.
+
 ## İş günü
 
 `meta.day_start_hour` (varsayılan 5) iş gününün yerel başlangıç saatidir. Rapor gün/ay sınırları,

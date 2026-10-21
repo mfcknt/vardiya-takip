@@ -22,7 +22,6 @@ from .backup import automatic_backup, backup_usage, create_backup, restore_datab
 from .formatting import cents, tl
 from .reports import build_report, export_audit, export_report
 from .security import PIN_LENGTH, AppError
-from .storage import inspect_database
 from .widgets import (
     Backdrop, HeatmapWidget, Keypad, PersonRing, PinDots, RingWidget, StatTile, TimelineWidget, WelcomeDialog,
     app_icon, avatar_pixmap, current, font, load_fonts, logo_pixmap, set_current,
@@ -949,6 +948,9 @@ class AdminDialog(QDialog):
     def today_page(self):
         box = self.tab("bugün", scroll=True)
         self.today_subtitle = box.subtitle_label
+        self.health_note = label("", "warning")
+        self.health_note.hide()
+        box.addWidget(self.health_note)
         tiles = QHBoxLayout()
         tiles.setSpacing(12)
         self.tile_inside = StatTile("şu an içeride")
@@ -1121,6 +1123,9 @@ class AdminDialog(QDialog):
         since, until = s.day_bounds(day, day)
         self.today_subtitle.setText(f"{th.DAYS[day.weekday()]}, {day.day} {th.MONTHS[day.month - 1]} · "
                                     f"iş günü {s.day_start_hour:02d}:00’da başlar")
+        problems = s.health.problems()
+        self.health_note.setText("\n".join(problems))
+        self.health_note.setVisible(bool(problems))
         kiosk = {e["id"]: e for e in s.kiosk_employees()}
         inside = [e for e in kiosk.values() if e["session_id"]]
         today_report = build_report(s, self.token, day, day)
@@ -1276,7 +1281,8 @@ class AdminDialog(QDialog):
     @guarded
     def check_integrity(self):
         self.service.require_admin(self.token)
-        errors = inspect_database(self.service.db.path)
+        errors = self.service.health.check_integrity()
+        self.refresh()
         QMessageBox.information(self, "Bütünlük sonucu", "\n".join(errors) if errors else
                                 "SQLite, ilişkili kayıtlar, saat çakışmaları ve işlem zinciri: sağlam.")
 
@@ -1598,13 +1604,23 @@ class MainWindow(QMainWindow):
         if alert:
             # Staff keep working; records are flagged for the admin.
             lines.append(alert + " Giriş/çıkışlar yönetici incelemesi için işaretleniyor.")
+        try:
+            automatic_backup(self.service.db, self.service.zone, self.verified_backups)
+            backup_failed = False
+        except (AppError, sqlite3.Error, OSError):
+            backup_failed = True
+        health = self.service.health
+        if health.integrity_due():
+            health.check_integrity()
         # Anything only the admin can fix is a short count; details live in the admin panel.
         # Forgotten exits and open records older than 24 h, each person counted once.
         stuck = sum(1 for e in people if e["session_id"] and (self.service.past_day_boundary(e["start_at"])
                                                                or now - e["start_at"] > 86400))
-        notes = stuck + bool(notice and not alert)
+        notes = stuck + bool(notice and not alert) + len(health.problems())
         if notes:
             lines.append(f"Yönetici için {notes} not var.")
+        if backup_failed:
+            lines.append("Otomatik yedek alınamadı. Yönetici yedekleri kontrol etmeli.")
         message = "\n".join(lines)
         self.warning.setText(message)
         self.warning.setVisible(bool(message))
@@ -1614,12 +1630,6 @@ class MainWindow(QMainWindow):
         self.today_seconds = self.service.kiosk_today_seconds()
         if self.cards_state() != self.card_signature:
             self.render_people()
-        try:
-            automatic_backup(self.service.db, self.service.zone, self.verified_backups)
-        except (AppError, sqlite3.Error, OSError):
-            self.warning.setText((message + "\n" if message else "") +
-                                 "Otomatik yedek alınamadı. Yönetici yedekleri kontrol etmeli.")
-            self.warning.show()
 
     @guarded
     def attendance(self, employee):

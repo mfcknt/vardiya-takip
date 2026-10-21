@@ -556,3 +556,18 @@ def test_audit_party_words():
     assert audit_party("system", names) == "Sistem"
     assert audit_party("day_start_hour", names) == "İş günü saati"
     assert audit_party("unknown", names) == "unknown"
+
+
+def test_health_problems_reach_kiosk_count_and_admin_page(qapp, system, monkeypatch):
+    s, c, token, _ = system
+    window = MainWindow(s)
+    window.show()
+    window.heartbeat()                       # takes today's automatic backup first
+    assert not window.warning.isVisible()
+    monkeypatch.setattr(s.health, "problems", lambda: ["Diskte yalnızca 100 MB boş yer kaldı; yedekler alınamayabilir."])
+    window.heartbeat()
+    assert window.warning.text() == "Yönetici için 1 not var."
+    panel = AdminDialog(s, token)
+    assert "100 MB" in panel.health_note.text() and not panel.health_note.isHidden()
+    panel.reject()
+    window.close()
