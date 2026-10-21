@@ -426,3 +426,19 @@ def test_windows_fit_small_screens_and_inside_count(qapp, system):
     pin.reject()
     panel.reject()
     window.close()
+
+
+def test_filters_apply_by_themselves(qapp, system):
+    s, c, token, eid = system
+    s.manual_session(token, eid, c.now - 3 * 86400, c.now - 3 * 86400 + 3600, 15000,
+                     "Eski kayıt eklendi", str(uuid.uuid4()))
+    panel = AdminDialog(s, token)
+    assert panel.session_table.rowCount() == 1
+    from vardiya.ui import step_days
+    step_days(panel.session_filter.first, panel.session_filter.last, -1, lambda: None)   # 19 Ekim: boş
+    QTest.qWait(400)
+    assert panel.session_table.rowCount() == 0
+    panel.session_filter.last_30(lambda: None)
+    QTest.qWait(400)
+    assert panel.session_table.rowCount() == 1
+    panel.reject()

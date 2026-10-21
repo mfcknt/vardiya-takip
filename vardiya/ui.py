@@ -702,11 +702,20 @@ class FilterBar(QWidget):
         for e in service.employees(token):
             self.employee.addItem(f"{e['name']} · No {e['id']}", e["id"])
         row.addWidget(self.employee)
-        self.review = QCheckBox("Yalnızca inceleme bekleyenler") if review_toggle else None
+        self.review = QCheckBox("inceleme bekleyenler") if review_toggle else None
         if self.review:
             row.addWidget(self.review)
-        row.addWidget(button("Filtrele", on_apply))
         row.addStretch()
+        # Filters apply by themselves (short debounce so stepping days stays smooth).
+        self._apply = QTimer(self)
+        self._apply.setSingleShot(True)
+        self._apply.setInterval(200)
+        self._apply.timeout.connect(on_apply)
+        for edit in (self.first, self.last):
+            edit.dateChanged.connect(self._apply.start)
+        self.employee.currentIndexChanged.connect(self._apply.start)
+        if self.review:
+            self.review.toggled.connect(self._apply.start)
 
     def last_30(self, on_apply):
         today = self.service.business_day(self.service.clock.wall())
@@ -1000,8 +1009,8 @@ class AdminDialog(QDialog):
                      else "in" if s["end_at"] is None and not s["voided"] else "out")
                     for s in self.session_rows])
         pending = self.service.pending_reviews(self.token)
-        self.review_note.setText(f"İnceleme bekleyen {pending} kayıt var. “Yalnızca inceleme bekleyenler” "
-                                 "ile listeleyip saatleri kontrol ederek kaydedin.")
+        self.review_note.setText(f"İnceleme bekleyen {pending} kayıt var. “inceleme bekleyenler” kutusuyla "
+                                 "listeleyip saatleri kontrol ederek kaydedin.")
         self.review_note.setVisible(bool(pending))
         f = self.payment_filter.values()
         self.payment_rows = self.service.payments(self.token, f["eid"], f["since"], f["until"])
