@@ -20,6 +20,7 @@ from . import periods
 from . import theme as th
 from .backup import automatic_backup, backup_usage, create_backup, restore_database
 from .formatting import cents, tl
+from .receipts import receipt_html
 from .reports import build_report, export_audit, export_report
 from .security import PIN_LENGTH, AppError
 from .service import RECOVERY_DIGITS
@@ -374,7 +375,8 @@ class PinDialog(KeypadInput, QDialog):
             hint = f"{local:%H:%M}'dan beri içeride"
         else:
             hint = "işe başlamak için pin'ini gir"
-        names.addWidget(label(hint, "subtitle"))
+        self.hint = label(hint, "subtitle")
+        names.addWidget(self.hint)
         head.addLayout(names, 1)
         box.addLayout(head)
         if self.forgotten:
@@ -390,12 +392,29 @@ class PinDialog(KeypadInput, QDialog):
                                      self.confirm, True)
         self.confirm_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         box.addWidget(self.confirm_button)
+        links = QHBoxLayout()
+        links.addStretch()
+        self.view_button = button("kayıtlarım", self.view_mode, name="ghost")
+        self.view_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        links.addWidget(self.view_button)
         cancel = button("vazgeç", self.reject, name="ghost")
         cancel.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        box.addWidget(cancel, 0, Qt.AlignmentFlag.AlignHCenter)
+        links.addWidget(cancel)
+        links.addStretch()
+        box.addLayout(links)
+        self.viewing = False
         self.setFixedWidth(max(340, key * 3 + int(key * 0.32) * 2 + 56))
         # Short-lived PIN screen, even if nobody presses a button.
         QTimer.singleShot(60_000, self, self.reject)
+
+    def view_mode(self):
+        """The next PIN shows this person's month instead of recording work."""
+        self.viewing = True
+        self.hint.setText("kayıtlarını görmek için pin'ini gir")
+        self.confirm_button.setText("kayıtlarımı göster")
+        self.view_button.hide()
+        self.pin.clear()
+        self.error.hide()
 
     def confirm(self):
         self._submit_pending = False
@@ -403,6 +422,12 @@ class PinDialog(KeypadInput, QDialog):
             return
         self.confirm_button.setEnabled(False)
         try:
+            if self.viewing:
+                month = self.service.staff_month(self.employee["id"], self.pin.text())
+                self.pin.clear()
+                StaffMonthDialog(self.service, self.employee["name"], month, self).exec()
+                self.reject()                # nothing was recorded
+                return
             self.result_sid = self.service.attendance(self.employee["id"], self.pin.text(), self.action,
                                                       self.employee["session_id"], self.request_id)
             self.pin.clear()
@@ -419,6 +444,38 @@ class PinDialog(KeypadInput, QDialog):
     def done(self, result):
         self.pin.clear()
         super().done(result)
+
+
+class StaffMonthDialog(QDialog):
+    """A person's own month on the kiosk: days, hours, recent records. Closes by itself."""
+    SECONDS = 30
+
+    def __init__(self, service, name, month, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Kayıtlarım")
+        box = QVBoxLayout(self)
+        box.setContentsMargins(28, 22, 28, 20)
+        box.setSpacing(10)
+        box.addWidget(label(f"{th.tr_lower(name)} · {periods.month_label(month['month'])}", "h2"))
+        self.totals = label(f"{month['days']} gün · {th.hours_text(month['seconds'])}", "title")
+        box.addWidget(self.totals)
+        self.table = make_table(["Gün", "Giriş", "Çıkış", "Süre"])
+        rows = month["records"][:12]
+        fill_table(self.table, [[
+            f"{r['day'].day} {th.MONTHS[r['day'].month - 1]} {th.SHORT_DAYS[r['day'].weekday()]}",
+            datetime.fromtimestamp(r["start_at"], service.zone).strftime("%H:%M"),
+            datetime.fromtimestamp(r["end_at"], service.zone).strftime("%H:%M") if r["end_at"] else "içeride",
+            th.hours_text(r["seconds"]) + (" · inceleniyor" if r["review"] else "")] for r in rows])
+        self.table.setMinimumHeight(min(420, 60 + 46 * max(1, len(rows))))
+        box.addWidget(self.table)
+        if month["review_count"]:
+            box.addWidget(label(f"{month['review_count']} kaydın saatini yönetici kontrol edecek.", "warning"))
+        close = button("kapat", self.accept, True)
+        close.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        box.addWidget(close)
+        self.setMinimumWidth(520)
+        # Kiosk screen is public: do not leave someone's records open.
+        QTimer.singleShot(self.SECONDS * 1000, self, self.accept)
 
 
 class CodeDialog(KeypadInput, QDialog):
@@ -726,6 +783,41 @@ class ClosePeriodDialog(FormDialog):
     def save(self):
         self.service.close_period(self.token, self.month.currentData())
         self.accept()
+
+
+class ReceiptDialog(QDialog):
+    """Preview of a payment receipt with PDF save and print."""
+    def __init__(self, service, payment, parent=None):
+        from PySide6.QtWidgets import QTextBrowser
+        super().__init__(parent)
+        self.payment = payment
+        self.html = receipt_html(service, payment)
+        self.setWindowTitle("Ödeme makbuzu")
+        box = QVBoxLayout(self)
+        box.addWidget(label("ödeme makbuzu", "title"))
+        preview = QTextBrowser()
+        preview.setHtml(self.html)
+        preview.setMinimumHeight(420)
+        box.addWidget(preview)
+        row = QHBoxLayout()
+        row.addWidget(button("PDF kaydet", self.save_pdf))
+        row.addWidget(button("Yazdır", self.print_receipt, True))
+        row.addStretch()
+        row.addWidget(button("Kapat", self.accept, name="ghost"))
+        box.addLayout(row)
+        self.setMinimumWidth(560)
+
+    @guarded
+    def save_pdf(self):
+        day = datetime.fromtimestamp(self.payment["paid_at"]).strftime("%Y%m%d")
+        path, _ = QFileDialog.getSaveFileName(self, "Makbuzu kaydet", f"makbuz-{self.payment['id']}-{day}.pdf",
+                                              "PDF (*.pdf)")
+        if path:
+            print_html(self.html, self, pdf_path=path if path.lower().endswith(".pdf") else path + ".pdf")
+
+    @guarded
+    def print_receipt(self):
+        print_html(self.html, self)
 
 
 class PaymentDialog(FormDialog):
@@ -1110,7 +1202,8 @@ class AdminDialog(QDialog):
         self.payment_filter = FilterBar(self.service, self.token, self.filters_changed)
         self.filters.append(self.payment_filter)
         box.addWidget(self.payment_filter)
-        self.toolbar(box, [("Ödeme / avans ekle", self.add_payment), ("Seçileni iptal et", self.void_payment)])
+        self.toolbar(box, [("Ödeme / avans ekle", self.add_payment), ("Makbuz", self.receipt),
+                           ("Seçileni iptal et", self.void_payment)])
         self.payment_table = make_table(["Kayıt", "Personel", "Tarih", "Tür", "Tutar TL", "Açıklama", "Durum"])
         box.addWidget(self.payment_table)
 
@@ -1471,6 +1564,10 @@ class AdminDialog(QDialog):
                          submit, self, "Değişiklikten sonra yeniden giriş yapmanız gerekir.")
         if dlg.exec():
             self.accept()
+
+    @guarded
+    def receipt(self):
+        ReceiptDialog(self.service, self.selected(self.payment_table, self.payment_rows), self).exec()
 
     @guarded
     def close_period(self):

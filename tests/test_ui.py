@@ -648,3 +648,46 @@ def test_close_and_reopen_a_month_from_the_earnings_page(qapp, system, monkeypat
     panel.reopen_period()
     assert s.closed_month is None and "Henüz kapatılmış ay yok" in panel.period_note.text()
     panel.reject()
+
+
+def test_staff_can_see_their_month_without_recording(qapp, system, monkeypatch):
+    from vardiya import ui
+    s, c, token, eid = system
+    s.manual_session(token, eid, ts("2026-10-05T09:00"), ts("2026-10-05T17:00"), 15000, "Kayıt", str(uuid.uuid4()))
+    shown = []
+
+    def capture(self):
+        shown.append((self.totals.text(), self.table.rowCount(), self.table.item(0, 2).text()))
+        return 1
+    monkeypatch.setattr(ui.StaffMonthDialog, "exec", capture)
+    dialog = PinDialog(s, s.kiosk_employees()[0])
+    dialog.view_button.click()
+    assert dialog.confirm_button.text() == "kayıtlarımı göster" and dialog.view_button.isHidden()
+    dialog.pin.setText(PIN)
+    dialog.confirm()
+    assert shown == [("1 gün · 8 sa", 1, "17:00")]
+    assert dialog.result() == QDialog.DialogCode.Rejected and dialog.result_sid is None
+    assert s.kiosk_employees()[0]["session_id"] is None          # no work was recorded
+    month = s.staff_month(eid, PIN)
+    view = ui.StaffMonthDialog(s, "Ayşe Yılmaz", month)
+    assert all("TL" not in w.text() for w in view.findChildren(QLabel))
+    view.reject()
+
+
+def test_payment_receipt_saves_a_pdf(qapp, system, monkeypatch, tmp_path):
+    from PySide6.QtWidgets import QFileDialog
+    from vardiya import ui
+    s, c, token, eid = system
+    s.add_payment(token, eid, ts("2026-10-15T18:30"), 125030, "Avans", "Ekim avansı", str(uuid.uuid4()))
+    panel = AdminDialog(s, token)
+    opened = []
+    monkeypatch.setattr(ui.ReceiptDialog, "exec", lambda self: opened.append(self) or 1)
+    panel.payment_table.setCurrentCell(0, 1)
+    panel.receipt()
+    target = tmp_path / "makbuz"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), "PDF (*.pdf)"))
+    opened[0].save_pdf()
+    pdf = tmp_path / "makbuz.pdf"
+    assert pdf.read_bytes()[:5] == b"%PDF-" and pdf.stat().st_size > 1000
+    assert "bin iki yüz elli Türk lirası" in opened[0].html
+    panel.reject()

@@ -22,7 +22,7 @@ from vardiya.security import AppError  # noqa: E402
 from vardiya.service import Service  # noqa: E402
 from vardiya.storage import Database  # noqa: E402
 from vardiya.ui import (  # noqa: E402
-    AdminDialog, CodeDialog, MainWindow, PinDialog, RecoveryKeyDialog, apply_theme,
+    AdminDialog, CodeDialog, MainWindow, PinDialog, RecoveryKeyDialog, StaffMonthDialog, apply_theme,
 )
 from vardiya.service import RECOVERY_DIGITS  # noqa: E402
 from vardiya.widgets import WelcomeDialog  # noqa: E402
@@ -146,6 +146,10 @@ def main(out):
                 forgot.press(digit)
             grab(forgot, out / "recovery-enter-dark.png")
             forgot.reject()
+            month = service.staff_month(person["id"], "4829")      # Ayşe's sample PIN
+            mine = StaffMonthDialog(service, person["name"], month, window)
+            grab(mine, out / "staff-month-dark.png")
+            mine.reject()
         token = service.login_admin(PASSWORD)
         panel = AdminDialog(service, token, window)
         pages = ["today", "people", "sessions", "report", "payments", "settings"]

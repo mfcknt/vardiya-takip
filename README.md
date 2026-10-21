@@ -39,6 +39,10 @@ Not: Depo sayfasındaki **Code → Download ZIP** yalnızca kaynak kodu indirir;
    **kurtarma anahtarını** yazdırın veya kâğıda yazıp kasada saklayın.
 6. Yönetici → Personel → Personel ekle: ad soyad, 4 haneli PIN, saatlik TL ücretini girin.
 7. Ana ekranda personelin halkasına dokunun ve PIN’i girin; 4. rakamda işlem kendiliğinden yapılır.
+8. Personel kendi ayını görmek için PIN ekranında **kayıtlarım**’a dokunup PIN’ini girer: bu ayki gün,
+   saat ve son kayıtlar görünür (tutar gösterilmez), ekran 30 saniyede kendiliğinden kapanır.
+9. Ödemeler → **Makbuz**: seçili ödeme için imza alanlı, tutarı yazıyla da yazan tek sayfalık makbuz;
+   PDF olarak kaydedilir veya yazdırılır.
 
 Varsayılan şifre, önceden tanımlı personel veya gizli şifre sıfırlama yolu yoktur. Yönetici şifresi
 unutulursa tek yol kâğıttaki kurtarma anahtarıdır: yönetici → **kodu unuttum**. Kullanılan anahtar

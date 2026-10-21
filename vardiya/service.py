@@ -296,6 +296,25 @@ class Service:
             "month_seconds": self._worked_seconds(eid, since, until, now),
         }
 
+    def staff_month(self, eid, pin):
+        """A person's own month on the kiosk after their PIN: days, hours, recent records. No money."""
+        self._authenticate(f"staff:{eid}", pin)
+        now = self.clock.wall()
+        today = self.business_day(now)
+        since, until = self.day_bounds(today.replace(day=1), today)
+        rows = self.db.conn.execute("""SELECT start_at, end_at, review FROM sessions WHERE employee_id=?
+            AND voided=0 AND start_at < ? AND COALESCE(end_at, ?) > ? ORDER BY start_at DESC""",
+                                    (eid, until, now, since)).fetchall()
+        records = []
+        for row in rows:
+            end = row["end_at"] if row["end_at"] is not None else now
+            records.append({"day": self.business_day(row["start_at"]), "start_at": row["start_at"],
+                            "end_at": row["end_at"], "seconds": max(0, min(end, until) - max(row["start_at"], since)),
+                            "review": bool(row["review"])})
+        return {"month": periods.month_key(today), "days": len({r["day"] for r in records}),
+                "seconds": sum(r["seconds"] for r in records), "records": records,
+                "review_count": sum(r["review"] for r in records)}
+
     def _flag_forgotten(self, now):
         """Inside a transaction: flag open records left past the business-day boundary."""
         for row in self.db.conn.execute(
