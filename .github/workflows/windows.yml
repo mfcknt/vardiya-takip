@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
 permissions:
-  contents: write   # only used to publish review screenshots to the ci-screenshots branch
+  contents: write   # publishes review screenshots and the "son-surum" Windows release
 jobs:
   windows:
     runs-on: windows-latest
@@ -95,3 +95,17 @@ jobs:
           name: VardiyaTakip-Windows-x64
           path: dist/VardiyaTakip-Windows-x64.zip
           if-no-files-found: error
+      - name: Publish Windows release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          notes="Windows 10/11 x64 · Python gerekmez.
+          1. VardiyaTakip-Windows-x64.zip dosyasını indirip açın.
+          2. İçindeki VardiyaTakip klasörünün tamamını masaüstüne kopyalayın (_internal klasörü yanında kalmalı).
+          3. VardiyaTakip.exe dosyasını çift tıklayın. 'Windows bilgisayarınızı korudu' uyarısında Ek bilgi → Yine de çalıştır.
+          Sürüm: ${GITHUB_SHA::7}"
+          gh release delete son-surum --yes --cleanup-tag || true
+          gh release create son-surum dist/VardiyaTakip-Windows-x64.zip \
+            --title "Vardiya Takip · Windows son sürüm" --notes "$notes" --target "$GITHUB_SHA" --latest

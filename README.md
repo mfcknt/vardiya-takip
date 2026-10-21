@@ -15,7 +15,16 @@ Python 3.12+, PySide6 ve SQLite. Fare/klavye ve büyük dokunmatik düğmelerle 
 ön hak ediş hesaplar. Vergi, prim, izin, fazla mesai katsayısı veya yasal kesinti hesabı içermez.
 Mola ve planlanan vardiya özellikleri yoktur.
 
-## Windows’ta başlatma
+## Windows’ta başlatma (Python gerekmez)
+
+1. https://github.com/mfcknt/vardiya-takip/releases/latest adresinden **VardiyaTakip-Windows-x64.zip** dosyasını indirin.
+2. ZIP’i açın, içindeki **VardiyaTakip** klasörünün tamamını masaüstüne kopyalayın.
+3. **VardiyaTakip.exe**’yi çift tıklayın. İlk açılışta çıkan “Windows bilgisayarınızı korudu” uyarısında
+   **Ek bilgi → Yine de çalıştır**’ı seçin (uygulama kod imzalı değildir).
+
+Not: Depo sayfasındaki **Code → Download ZIP** yalnızca kaynak kodu indirir; `.exe` içermez.
+
+## Kaynaktan çalıştırma (geliştirme)
 
 1. Proje ZIP dosyasını yerel bir klasöre çıkarın.
 2. Python 3.12 x64 kurulu olsun. İlk kurulum için internet gerekir.
