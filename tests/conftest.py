@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -46,6 +47,27 @@ def system(tmp_path):
 
 
 MODAL_SEEN = []
+HANG_SECONDS = 90
+
+
+@pytest.fixture(autouse=True)
+def hang_watchdog(request):
+    """If a test blocks (e.g. an unexpected modal exec), write which test and where,
+    then stop the run so CI can report it instead of timing out silently."""
+    import faulthandler
+    import threading
+    report = Path(os.environ.get("VARDIYA_HANG_REPORT", "hang-report.txt"))
+
+    def fire():
+        with report.open("w", encoding="utf-8") as f:
+            f.write(f"Takılan test: {request.node.nodeid}\n")
+            faulthandler.dump_traceback(file=f, all_threads=True)
+        os._exit(3)
+    timer = threading.Timer(HANG_SECONDS, fire)
+    timer.daemon = True
+    timer.start()
+    yield
+    timer.cancel()
 
 
 @pytest.fixture(scope="session")

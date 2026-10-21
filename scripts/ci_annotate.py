@@ -18,6 +18,9 @@ def main(path):
         sys.stdout.reconfigure(encoding="utf-8")
     except (AttributeError, ValueError):
         pass
+    hang = Path("hang-report.txt")
+    if hang.exists():
+        print(f"::error title=Takılan test::{escape(hang.read_text(encoding='utf-8', errors='replace')[-3500:])}")
     report = Path(path)
     if not report.exists():
         print("::error title=pytest::Test raporu üretilmedi (kurulum veya toplama hatası).")

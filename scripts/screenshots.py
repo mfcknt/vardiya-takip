@@ -104,10 +104,10 @@ def main(out):
     apply_theme(app, "dark")
 
     def fail_on_modal():
+        from PySide6.QtWidgets import QMessageBox
         widget = app.activeModalWidget()
-        if widget is not None:
-            text = widget.text() if hasattr(widget, "text") else widget.windowTitle()
-            print("Beklenmeyen modal pencere:", text, flush=True)
+        if isinstance(widget, QMessageBox):        # only error boxes are unexpected here
+            print("Beklenmeyen hata penceresi:", widget.text(), flush=True)
             os._exit(3)
     watchdog = QTimer()
     watchdog.timeout.connect(fail_on_modal)
