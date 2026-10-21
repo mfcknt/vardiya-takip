@@ -35,10 +35,11 @@ def test_greeting_uses_business_day_and_phase():
 
 
 def test_themes_share_keys_and_stylesheet_builds():
-    dark, light = th.THEMES["dark"], th.THEMES["light"]
-    assert dark.keys() == light.keys()
-    assert dark["brand"] == light["brand"] == "#3a0300"   # the logo colour
-    for t in (dark, light):
+    dark, night, light = th.THEMES["dark"], th.THEMES["night"], th.THEMES["light"]
+    assert dark.keys() == light.keys() == night.keys()
+    assert dark["brand"] == light["brand"] == night["brand"] == "#3a0300"   # the logo colour
+    assert set(th.THEME_LABELS) == set(th.THEMES)
+    for t in (dark, night, light):
         css = th.stylesheet(t)
         assert t["bg"] in css and "Jost" in css and "Quicksand" in css
     assert th.tokens("nope") is th.THEMES[th.DEFAULT_THEME]

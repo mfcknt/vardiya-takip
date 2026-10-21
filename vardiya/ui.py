@@ -36,7 +36,7 @@ def apply_theme(app, name=th.DEFAULT_THEME):
     t = th.tokens(name)
     set_current(t)
     try:
-        app.styleHints().setColorScheme(Qt.ColorScheme.Dark if t["name"] == "dark" else Qt.ColorScheme.Light)
+        app.styleHints().setColorScheme(Qt.ColorScheme.Light if t["name"] == "light" else Qt.ColorScheme.Dark)
     except AttributeError:
         pass  # Qt < 6.8
     palette = QPalette()
@@ -771,7 +771,7 @@ class AdminDialog(QDialog):
         frame, inner = panel("görünüm")
         row = QHBoxLayout()
         self.theme_chips = []
-        for name, caption in (("dark", "koyu · bordo gece"), ("light", "açık · krem kâğıt")):
+        for name, caption in th.THEME_LABELS.items():
             chip = button(caption, lambda checked=False, n=name: self.change_theme(n), name="chip")
             chip.setCheckable(True)
             self.theme_chips.append((chip, name))

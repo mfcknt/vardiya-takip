@@ -117,7 +117,7 @@ def main(out):
     db = Database(data / "vardiya.sqlite3")
     service = Service(db, clock)
     seed(service, clock)
-    for theme in ("dark", "light"):
+    for theme in ("dark", "night", "light"):
         token = service.login_admin(PASSWORD)
         service.set_theme(token, theme)
         apply_theme(app, theme)
@@ -137,7 +137,7 @@ def main(out):
         panel = AdminDialog(service, token, window)
         pages = ["today", "people", "sessions", "report", "payments", "settings"]
         for index, page in enumerate(pages):
-            if theme == "light" and page not in ("today", "sessions"):
+            if theme != "dark" and page not in ("today", "sessions"):
                 continue
             panel.nav.setCurrentRow(index)
             grab(panel, out / f"admin-{page}-{theme}.png", (1280, 860))

@@ -231,6 +231,11 @@ def test_theme_switch_persists_and_applies(qapp, system):
     assert s.theme == "light" and current()["name"] == "light"
     assert qapp.palette().color(QPalette.ColorRole.Window).lightness() > 200
     assert light_chip.isChecked()
+    night_chip = next(chip for chip, name in panel.theme_chips if name == "night")
+    night_chip.click()
+    assert s.theme == "night" and current()["name"] == "night"
+    assert qapp.palette().color(QPalette.ColorRole.Window).lightness() < 30
+    assert night_chip.isChecked() and not light_chip.isChecked()
     dark_chip = next(chip for chip, name in panel.theme_chips if name == "dark")
     dark_chip.click()
     assert s.theme == "dark" and current()["name"] == "dark"

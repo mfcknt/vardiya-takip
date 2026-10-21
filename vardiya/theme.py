@@ -21,6 +21,18 @@ THEMES = {
         "lock": "#e58b86", "lock_soft": "#3d1716",
         "done": "#c9a99a", "selection": "#3a1714", "input": "#2a0d0b",
     },
+    "night": {
+        "name": "night",
+        "bg": "#0f0f10", "surface": "#17171a", "surface2": "#1f1f23", "line": "#2e2e34",
+        "line_soft": "#222226", "watermark": "#18181b",
+        "text": "#f3ede6", "muted": "#a39d97", "faint": "#6f6a66",
+        "ring": "#f6ece3", "ring_track": "#2a2a2f", "ring_idle": "#3b3b41",
+        "brand": "#3a0300", "on_brand": "#f6ece3", "primary": "#f6ece3", "on_primary": "#3a0300",
+        "inside": "#9cc7a4", "inside_soft": "#1b2a20",
+        "warn": "#e2a84b", "warn_text": "#f2c879", "warn_soft": "#2d2412",
+        "lock": "#e58b86", "lock_soft": "#331a1a",
+        "done": "#b5aaa2", "selection": "#2b1715", "input": "#1a1a1e",
+    },
     "light": {
         "name": "light",
         "bg": "#f7efe6", "surface": "#fffaf4", "surface2": "#f1e7dc", "line": "#e2d4c6",
@@ -34,6 +46,8 @@ THEMES = {
         "done": "#8a6a5e", "selection": "#efe1d4", "input": "#ffffff",
     },
 }
+
+THEME_LABELS = {"dark": "koyu · bordo gece", "night": "gece siyahı", "light": "açık · krem kâğıt"}
 
 SHIFT_GOAL_SECONDS = 8 * 3600     # the ring is full after 8 hours
 

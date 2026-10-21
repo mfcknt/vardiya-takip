@@ -4,7 +4,7 @@
 
 Personel, logodaki “Ó” gibi ince bir halkayla gösterilir: içerideyken halkanın şapkası yanar ve
 halka vardiya ilerledikçe (8 saatte) dolar. Çıkışı unutulan kayıt kesik bal sarısı, PIN’i kilitlenen
-personel gül kurusu halkayla görünür. Koyu (bordo gece) ve açık (krem kâğıt) tema Yönetici → Ayarlar’dan
+personel gül kurusu halkayla görünür. Koyu (bordo gece), gece siyahı ve açık (krem kâğıt) tema Yönetici → Ayarlar’dan
 seçilir. Yazı tipleri Jost ve Quicksand (SIL Open Font License) uygulamaya gömülüdür.
 
 
