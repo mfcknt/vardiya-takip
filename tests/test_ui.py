@@ -433,6 +433,7 @@ def test_filters_apply_by_themselves(qapp, system):
     s.manual_session(token, eid, c.now - 3 * 86400, c.now - 3 * 86400 + 3600, 15000,
                      "Eski kayıt eklendi", str(uuid.uuid4()))
     panel = AdminDialog(s, token)
+    panel.show()                                     # hidden panels never auto-refresh
     assert panel.session_table.rowCount() == 1
     from vardiya.ui import step_days
     step_days(panel.session_filter.first, panel.session_filter.last, -1, lambda: None)   # 19 Ekim: boş
