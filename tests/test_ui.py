@@ -442,3 +442,13 @@ def test_filters_apply_by_themselves(qapp, system):
     QTest.qWait(400)
     assert panel.session_table.rowCount() == 1
     panel.reject()
+
+
+def test_closing_admin_with_pending_filter_does_not_refresh(qapp, system):
+    s, _, token, _ = system
+    panel = AdminDialog(s, token)
+    panel.show()
+    panel.session_filter.review.setChecked(True)     # starts the 200 ms auto-apply timer
+    panel.reject()                                    # closes before it fires
+    assert not panel.session_filter._apply.isActive()
+    QTest.qWait(400)                                  # no "oturum kapandı" box, no crash

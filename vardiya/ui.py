@@ -710,7 +710,7 @@ class FilterBar(QWidget):
         self._apply = QTimer(self)
         self._apply.setSingleShot(True)
         self._apply.setInterval(200)
-        self._apply.timeout.connect(on_apply)
+        self._apply.timeout.connect(lambda: on_apply() if self.isVisible() else None)
         for edit in (self.first, self.last):
             edit.dateChanged.connect(self._apply.start)
         self.employee.currentIndexChanged.connect(self._apply.start)
@@ -828,6 +828,10 @@ class AdminDialog(QDialog):
 
     def done(self, result):
         self.timer.stop()
+        # A filter change made just before closing must not refresh a closed panel.
+        for bar in (getattr(self, "session_filter", None), getattr(self, "payment_filter", None)):
+            if bar is not None:
+                bar._apply.stop()
         QApplication.instance().removeEventFilter(self)
         self.service.logout(self.token)
         super().done(result)
