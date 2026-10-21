@@ -31,7 +31,9 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
   Never reveal anything about other people's codes in any message.
 - Forgotten admin code: 20-digit paper recovery key (digits so the kiosk keypad works), single use,
   replaced on use; Ayarlar can issue a new one. No other reset path.
-- Locks escalate: staff 30 s → 5 min; admin 5 → 15 → 30 min → 1 h per attempt.
+- Locks escalate: staff 30 s → 5 min; admin 5 → 15 → 30 min → 1 h per attempt. Locks are per person:
+  a locked person's PIN window hides the keypad and closes itself (typing other codes there looked like
+  a global lock); messages say others are unaffected.
 - Business day starts 05:00 (configurable 0–12); the café opens 09:00 and closes ~01:00.
   Open records past the boundary are flagged "çıkış unutuldu"; the app never invents an exit time.
 - Clock alerts never block staff; records are flagged for admin review instead.

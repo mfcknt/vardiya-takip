@@ -24,7 +24,7 @@ from .formatting import cents, tl
 from .receipts import receipt_html
 from .reports import build_report, export_audit, export_report
 from .security import PIN_LENGTH, AppError
-from .service import RECOVERY_DIGITS
+from .service import RECOVERY_DIGITS, lock_message
 from .widgets import (
     Backdrop, HeatmapWidget, Keypad, PersonRing, PinDots, RingWidget, StatTile, TimelineWidget, WelcomeDialog,
     app_icon, avatar_pixmap, current, font, load_fonts, logo_pixmap, set_current,
@@ -430,6 +430,8 @@ class KeypadInput:
         self.long_view.setText(" ".join(slots[i:i + 4] for i in range(0, self.code_length, 4)))
 
     def press(self, text):
+        if getattr(self, "locked", False):
+            return
         if text == "Temizle":
             self.pin.clear()
         elif text == "Sil":
@@ -526,9 +528,34 @@ class PinDialog(KeypadInput, QDialog):
         links.addStretch()
         box.addLayout(links)
         self.viewing = False
+        self.locked = False
         self.setFixedWidth(max(340, key * 3 + int(key * 0.32) * 2 + 56))
         # Short-lived PIN screen, even if nobody presses a button.
         QTimer.singleShot(60_000, self, self.reject)
+        seconds = service.staff_lock_seconds(employee["id"])
+        if seconds:
+            self.show_locked(lock_message(seconds))
+
+    LOCKED_CLOSE_MS = 6000
+
+    def show_locked(self, text):
+        """This person's PIN is locked: no more typing here (another code typed into this
+        window would only repeat the message and look like everyone is locked)."""
+        self.locked = True
+        self.pin.clear()
+        self.hint.setText("pin girişi kilitli")
+        self.error.setText(text)
+        self.error.show()
+        self.dots.hide()
+        self.keypad.setEnabled(False)
+        self.keypad.hide()
+        self.confirm_button.hide()
+        self.view_button.hide()
+        # Shrink to the message: the wrapped label needs its height for the fixed dialog width.
+        margins = self.layout().contentsMargins()
+        self.error.setMinimumHeight(self.error.heightForWidth(self.width() - margins.left() - margins.right()))
+        self.adjustSize()
+        QTimer.singleShot(self.LOCKED_CLOSE_MS, self, self.reject)
 
     def view_mode(self):
         """The next PIN shows this person's month instead of recording work."""
@@ -541,7 +568,7 @@ class PinDialog(KeypadInput, QDialog):
 
     def confirm(self):
         self._submit_pending = False
-        if self.result_sid is not None:
+        if self.result_sid is not None or self.locked:
             return
         self.confirm_button.setEnabled(False)
         try:
@@ -561,6 +588,8 @@ class PinDialog(KeypadInput, QDialog):
             self.error.show()
             self.pin.clear()
             self.dots.set_filled(0, error=True)
+            if self.service.staff_lock_seconds(self.employee["id"]):
+                self.show_locked(self.error.text())
         finally:
             self.confirm_button.setEnabled(True)
 

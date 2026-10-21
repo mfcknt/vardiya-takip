@@ -89,11 +89,15 @@ def format_recovery_key(key):
     return "-".join(key[i:i + 4] for i in range(0, len(key), 4))
 
 
-def lock_message(seconds, staff=True):
+def lock_message(seconds, subject="staff:"):
+    """Says whose lock it is: a staff lock never blocks the admin or other staff, and vice versa."""
     minutes, rest = divmod(max(1, int(seconds)), 60)
     wait = f"{minutes} dk {rest} sn" if minutes else f"{rest} sn"
-    return (f"Çok sayıda hatalı deneme; giriş kilidi {wait} sonra açılır."
-            + (" Yönetici kilidi kaldırabilir." if staff else ""))
+    if subject.startswith("staff:"):
+        return (f"Çok sayıda hatalı deneme: bu kişinin PIN kilidi {wait} sonra açılır. "
+                "Diğer personel ve yönetici girişi etkilenmez; yönetici kilidi hemen kaldırabilir.")
+    what = "Kurtarma anahtarı" if subject == "recovery" else "Yönetici girişi"
+    return f"Çok sayıda hatalı deneme: {what} kilidi {wait} sonra açılır. Personel girişleri etkilenmez."
 
 
 class Service:
@@ -436,7 +440,7 @@ class Service:
             if row is None or len(secret) > 128:
                 error = "Kimlik bilgisi doğrulanamadı."
             elif row["locked_until"] > now:
-                error = lock_message(row["locked_until"] - now, subject.startswith("staff:"))
+                error = lock_message(row["locked_until"] - now, subject)
             elif not verify_secret(secret, row["secret"]):
                 failures = row["failures"] + 1
                 # Locks escalate; the counter only resets on a correct code,
@@ -452,7 +456,7 @@ class Service:
                     self.db.audit(now, "system", "AUTH_LOCK", subject,
                                   after={"failures": failures, "seconds": seconds},
                                   reason=f"{failures} hatalı deneme")
-                    error = lock_message(seconds, subject.startswith("staff:"))
+                    error = lock_message(seconds, subject)
                 else:
                     error = "Kimlik bilgisi doğrulanamadı."
             else:
@@ -461,6 +465,13 @@ class Service:
                 )
         if error:
             raise AppError(error)
+
+    def staff_lock_seconds(self, eid):
+        """Seconds left on one person's PIN lock (0 when free); same clock as _authenticate."""
+        now = max(self.clock.wall(), int(self.db.meta("last_wall", self.clock.wall())))
+        row = self.db.conn.execute("SELECT locked_until FROM credentials WHERE subject=?",
+                                   (f"staff:{eid}",)).fetchone()
+        return max(0, row["locked_until"] - now) if row else 0
 
     def login_admin(self, password):
         self._authenticate("admin", password)

@@ -42,7 +42,7 @@ def test_wrong_keys_lock_like_the_admin_code(system):
             s.recover_admin("0" * 20, "5826")
     with pytest.raises(AppError, match="kilidi") as locked:
         s.recover_admin("0" * 20, "5826")
-    assert "Yönetici kilidi kaldırabilir" not in str(locked.value)
+    assert "Kurtarma anahtarı kilidi" in str(locked.value) and "yönetici kilidi" not in str(locked.value)
     with pytest.raises(AppError, match="kilidi"):     # even the right key waits
         s.recover_admin(key, "5826")
     c.advance(5 * 60 + 1)

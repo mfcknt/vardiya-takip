@@ -744,3 +744,37 @@ def test_admin_pages_fit_a_1024_px_laptop_without_sideways_scrolling(qapp, syste
     qapp.processEvents()
     assert panel.tile_grid.columns == 2 and panel.pages.currentWidget().horizontalScrollBar().maximum() == 0
     panel.reject()
+
+
+def test_a_locked_pin_window_stops_taking_codes_and_others_are_unaffected(qapp, system):
+    from vardiya.ui import admin_login_dialog
+    s, c, token, eid = system
+    other = s.add_employee(token, "Can Arslan", "5738", 12000)
+    people = {e["id"]: e for e in s.kiosk_employees()}
+    dialog = PinDialog(s, people[eid])
+    for _ in range(5):
+        dialog.pin.setText("0000")
+        dialog.confirm()
+    assert dialog.locked and dialog.keypad.isHidden() and dialog.confirm_button.isHidden()
+    assert "bu kişinin PIN kilidi" in dialog.error.text() and "Diğer personel ve yönetici" in dialog.error.text()
+    dialog.press("3")                                 # typing the admin code here does nothing
+    assert dialog.pin.text() == ""
+    QTest.qWait(10)
+    PinDialog.LOCKED_CLOSE_MS = 50
+    try:
+        reopened = PinDialog(s, s.kiosk_employees()[[e["id"] for e in s.kiosk_employees()].index(eid)])
+        reopened.show()
+        assert reopened.locked and reopened.hint.text() == "pin girişi kilitli"
+        QTest.qWait(200)                              # closes by itself, back to the kiosk
+        assert reopened.result() == QDialog.DialogCode.Rejected and not reopened.isVisible()
+    finally:
+        PinDialog.LOCKED_CLOSE_MS = 6000
+    can = PinDialog(s, people[other])
+    assert not can.locked
+    can.pin.setText("5738")
+    can.confirm()
+    assert can.result() == QDialog.DialogCode.Accepted
+    login = admin_login_dialog(s)
+    login.pin.setText(PASSWORD)
+    login.confirm()
+    assert login.result() == QDialog.DialogCode.Accepted
