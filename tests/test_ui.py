@@ -307,3 +307,12 @@ def test_animations_can_be_switched_off(qapp, monkeypatch):
     big = widgets.RingWidget(60)
     big.draw_in()
     assert big.reveal == 1.0 and getattr(big, "_anim_reveal", None) is None
+
+
+def test_closed_main_window_stops_its_timers(qapp, system):
+    s, _, _, _ = system
+    window = MainWindow(s)
+    window.show()
+    assert window.timer.isActive() and window.clock_timer.isActive()
+    window.close()
+    assert not window.timer.isActive() and not window.clock_timer.isActive()

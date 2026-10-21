@@ -76,4 +76,13 @@ def qapp():
 def no_unexpected_modals():
     MODAL_SEEN.clear()
     yield
+    # Close every window a test left behind so its timers cannot fire later
+    # against a database that the `system` fixture has already closed.
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance()
+    if app is not None:
+        for widget in app.topLevelWidgets():
+            widget.close()
+            widget.deleteLater()
+        app.processEvents()
     assert not MODAL_SEEN, "Beklenmeyen modal pencere: " + " | ".join(MODAL_SEEN)

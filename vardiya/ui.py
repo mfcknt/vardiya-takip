@@ -1251,7 +1251,16 @@ class MainWindow(QMainWindow):
             self.render_people()
         self.centralWidget().update()
 
+    def closeEvent(self, event):
+        # A closed window must not keep polling the database in the background.
+        for timer in (getattr(self, "timer", None), getattr(self, "clock_timer", None)):
+            if timer is not None:
+                timer.stop()
+        super().closeEvent(event)
+
     def update_clock(self):
+        if not self.isVisible() or self.restoring:
+            return
         now = self.service.clock.wall()
         local = datetime.fromtimestamp(now, self.service.zone)
         self.clock_label.setText(f"{local:%H:%M}")
