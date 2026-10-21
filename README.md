@@ -21,6 +21,7 @@ Mola ve planlanan vardiya özellikleri yoktur.
 2. Çift tıklayın, **İleri → Kur**. Yönetici izni gerekmez; Başlat menüsüne ve masaüstüne kısayol eklenir.
    “Windows bilgisayarınızı korudu” uyarısında **Ek bilgi → Yine de çalıştır**’ı seçin (uygulama kod imzalı değildir).
 3. Güncellemek için yeni kurulum dosyasını aynı şekilde çalıştırın; kayıtlar korunur.
+   Kurduğunuz sürümü `scripts/arsivle.py` ile GitHub dışında saklayın (bkz. `docs/WINDOWS.md`).
    Kaldırma: Ayarlar → Uygulamalar → Vardiya Takip → Kaldır (veriler `%LOCALAPPDATA%\VardiyaTakip` içinde kalır).
 
 Kurulumsuz kullanım için aynı sayfadaki ZIP’e sağ tıklayıp **Tümünü ayıkla** deyin ve ayıklanan klasördeki

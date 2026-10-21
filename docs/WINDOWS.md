@@ -70,6 +70,23 @@ Bu işlem projenin ve bağımlılıklarının kurulabilir wheel dosyalarını ha
 macOS wheel dosyalarını Windows’a taşımayın.
 Son kullanıcı için EXE klasör paketi daha az kurulum adımı gerektirir.
 
+## Sürüm arşivi (GitHub dışında)
+
+`son-surum` her yayında yenisiyle değiştirilir; eski kurulum dosyaları GitHub’da kalmaz. Kafeye kurduğunuz
+her sürümü bir USB diske veya bulutla eşitlenen bir klasöre arşivleyin (internet gerekir, Python 3 yeterli,
+proje ortamı gerekmez):
+
+```sh
+python3 scripts/arsivle.py "/Volumes/USB/VardiyaArsiv"
+python3 scripts/arsivle.py "/Volumes/USB/VardiyaArsiv" --dogrula
+```
+
+Her sürüm `<tarih>_v<sürüm>_<commit>` klasörüne kurulum dosyası, kurulumsuz zip, o commit’in kaynak kodu,
+`SHA256SUMS` ve `BENIOKU.txt` ile yazılır. İndirilen dosyalar GitHub’ın bildirdiği SHA-256 ile doğrulanır;
+klasör yalnızca eksiksiz olduğunda görünür. Arşivdeki hiçbir şey üzerine yazılmaz veya silinmez.
+`--dogrula` diskteki bozulmayı yakalar; yılda bir çalıştırın. GitHub kapansa bile arşivdeki sürüm kurulabilir
+ve kaynak koddan yeniden derlenebilir.
+
 ## Hedef bilgisayar kabul kontrolü
 
 - İnternet kapalıyken uygulamayı açın; kurulum şifresini, personeli ve PIN’i doğrulayın.

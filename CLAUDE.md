@@ -17,6 +17,7 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
 | `vardiya/ui.py` | Screens: kiosk `MainWindow`, `PinDialog`, `CodeDialog`, `AdminDialog` |
 | `installer/VardiyaTakip.iss` | Inno Setup installer (per-user, Turkish, UTF-8 **with BOM**) |
 | `scripts/screenshots.py` | Renders all screens with sample data (CI publishes them) |
+| `scripts/arsivle.py` | Stdlib-only: archives the published release + source outside GitHub, `--dogrula` verifies |
 
 ## Decisions already made with the owner (do not undo without asking)
 
