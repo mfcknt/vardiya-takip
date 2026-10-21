@@ -36,6 +36,9 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
   screens show plain information only.
 - Kiosk: full screen, own on-screen keypad. Text fields in PIN/admin code dialogs must never take focus
   (Windows touch keyboard must not pop up). Touch feedback = short self-completing pulse/ripple.
+- Closed periods: admin closes finished months; records starting (payments made) before the boundary are
+  immutable; reopen only the last closed month with admin code + reason. Reports after the closed month
+  start from audited closing balances (`meta.closed_period`).
 - Must fit small laptop screens (use `fit_to_screen`, scrollable admin pages).
 
 ## Working rules
@@ -58,5 +61,5 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
 ## Open items discussed but not done
 
 Off-machine backup (USB reminder/copy),
-period closing (lock paid months; also speeds up reports), compressed backups, background
+compressed backups, background
 heavy work, staff self-view, payment receipts, code signing.

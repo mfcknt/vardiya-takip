@@ -90,11 +90,25 @@ Ayar değişikliği `SETTING_CHANGE` olarak denetlenir.
 `sessions`: giriş/çıkış, kayıt ücreti, iptal, revision ve inceleme notu (`review`).
 `payments`: ödeme/avans ve iptal. `receipts`: tekrar işlem önleme.
 `audit`: kim/ne zaman/ne yaptı, önce/sonra, gerekçe, önceki özet ve SHA-256.
-`meta`: sabit saat dilimi, saat inceleme durumu, zaman sınırı.
+`meta`: sabit saat dilimi, saat inceleme durumu, zaman sınırı, kapalı dönem (`closed_period`).
 
 Personel veya çalışma kaydı fiziksel olarak silinmez. İptal edilen kayıt rapora girmez,
 denetim geçmişinde saklanır. Yönetici adı tekil `admin` olarak kaydedilir; ayrı çoklu yönetici
-hesapları bu MVP’de yoktur. İşlem kodları geçmiş ekranında teknik İngilizce adlarıyla görünür.
+hesapları bu MVP’de yoktur. İşlem geçmişi ekranında işlem kodları Türkçe adlarıyla görünür.
+
+### Kapalı dönem
+
+Yönetici biten bir ayı kapatır (hak ediş → Ay kapat); o ay ve öncesi kesinleşir. Kural tek bir sınırdır:
+kapalı ayın son iş gününden sonraki ilk iş günü başlangıcından (`Service.closed_until`) önce **başlayan**
+çalışma kaydı ve önce **yapılan** ödeme eklenemez, düzeltilemez, iptal edilemez. Kapatma; açık kayıt veya
+inceleme bekleyen kayıt varsa reddedilir. Yeniden açma yönetici şifresini ve gerekçeyi ister ve yalnızca
+son kapatılan ayı açar (`history`).
+
+`meta.closed_period` her personelin kapalı ay sonundaki bakiyesini (hak ediş − ödeme, kuruş) tutar.
+Aralığı kapalı aydan sonra başlayan raporlar bu bakiyeden başlar ve yalnızca sonraki kayıtları okur;
+kapalı ayları içeren aralıklar her zaman tüm kayıtlardan hesaplanır. Bakiye her kapatma/açmada baştan
+hesaplanır (eski bakiyeden değil), iş günü başlangıç saati değişince de yenilenir (`PERIOD_RECALC`).
+Değer her seferinde işlem geçmişine yazılır; bütünlük denetimi `meta` ile son kaydın aynı olduğunu doğrular.
 
 ## Bütünlük ve kurtarma
 

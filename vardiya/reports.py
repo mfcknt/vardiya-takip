@@ -7,6 +7,7 @@ from decimal import Decimal
 from fractions import Fraction
 from pathlib import Path
 
+from . import periods
 from .security import AppError
 
 
@@ -34,8 +35,12 @@ def split_days(start: int, end: int, zone, hour: int = 0):
         start = stop
 
 
-def build_report(service, token, first: date, last: date, employee_id=None):
-    """Earnings for business days first..last; `employee_id` limits it to one person."""
+def build_report(service, token, first: date, last: date, employee_id=None, use_closed=True):
+    """Earnings for business days first..last; `employee_id` limits it to one person.
+
+    When the range starts after the closed period, balances start from the stored
+    closing balances and only records after the closed month are read.
+    """
     service.require_admin(token)
     if last < first or (last - first).days > 365:
         raise AppError("Rapor aralığı 1–366 gün olmalı.")
@@ -43,11 +48,18 @@ def build_report(service, token, first: date, last: date, employee_id=None):
     begin, stop = midnight(first, zone, hour), midnight(last + timedelta(days=1), zone, hour)
     # One consistent DB snapshot for detail, payments and totals.
     with service.db.transaction():
+        closed = service.closed_state() if use_closed else None
+        if closed and first > periods.month_last(closed["month"]):
+            since, closed_last = service.closed_until(closed["month"]), periods.month_last(closed["month"]).isoformat()
+            base = {int(k): v for k, v in closed["balances"].items()}
+        else:
+            since, closed_last, base = None, "", {}
         employees = [dict(r) for r in service.db.conn.execute("SELECT * FROM employees ORDER BY name,id")]
         sessions = [dict(r) for r in service.db.conn.execute(
-            "SELECT * FROM sessions WHERE voided=0 AND start_at<?", (stop,))]
+            "SELECT * FROM sessions WHERE voided=0 AND start_at<? AND COALESCE(end_at, ?)>COALESCE(?, -1)",
+            (stop, now, since))]
         payments = [dict(r) for r in service.db.conn.execute(
-            "SELECT * FROM payments WHERE voided=0 AND paid_at<?", (stop,))]
+            "SELECT * FROM payments WHERE voided=0 AND paid_at<? AND paid_at>=COALESCE(?, -1)", (stop, since))]
         clock_alert = service.db.meta("clock_alert", "")
         clock_notice = service.db.meta("clock_notice", "")
     if employee_id is not None:
@@ -78,7 +90,11 @@ def build_report(service, token, first: date, last: date, employee_id=None):
     for d in details:
         if d.get("review"):
             reviews[d["employee_id"]] += 1
+    for eid, cents in base.items():
+        lifetime[eid] += cents       # closing balance: earnings minus payments up to the closed month
     for (eid, day), bucket in sorted(daily.items()):
+        if day <= closed_last:
+            continue                 # already inside the closing balance
         cents, open_cents = round_cents(bucket["amount"]), round_cents(bucket["open_amount"])
         lifetime[eid] += cents
         if first.isoformat() <= day <= last.isoformat():

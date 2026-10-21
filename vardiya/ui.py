@@ -139,6 +139,8 @@ ACTION_NAMES = {
     "RESTORE": "Yedekten kurtarma", "SESSION_FLAG": "Çıkış unutuldu", "SETTING_CHANGE": "Ayar değişti",
     "SCHEMA_UPGRADE": "Veri şeması güncellendi", "RECOVERY_KEY": "Kurtarma anahtarı yenilendi",
     "ADMIN_RECOVERED": "Kod anahtarla kurtarıldı",
+    "PERIOD_CLOSE": "Dönem kapatıldı", "PERIOD_REOPEN": "Dönem yeniden açıldı",
+    "PERIOD_RECALC": "Kapanış bakiyesi yeniden hesaplandı",
 }
 AUDIT_SCREEN_LIMIT = 1000
 
@@ -146,7 +148,8 @@ AUDIT_SCREEN_LIMIT = 1000
 # Audit actors/entities are stored as "admin", "staff:5", "session:32"...; screens show words.
 AUDIT_NAMES = {"admin": "Yönetici", "system": "Sistem", "clock": "Saat", "theme": "Tema",
                "day_start_hour": "İş günü saati", "session": "Kayıt", "payment": "Ödeme",
-               "schema": "Veri şeması", "recovery": "Kurtarma anahtarı"}
+               "schema": "Veri şeması", "recovery": "Kurtarma anahtarı",
+               "period": "Kapalı dönem"}
 
 
 def action_name(code):
@@ -246,55 +249,6 @@ class FormDialog(QDialog):
         self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Vazgeç")
         self.buttons.rejected.connect(self.reject)
         self.layout.addWidget(self.buttons)
-
-
-class PasswordDialog(QDialog):
-    def __init__(self, title, parent=None, setup=False, submit=None):
-        super().__init__(parent)
-        self.setWindowTitle(title)
-        self.setMinimumWidth(500)
-        self.result_value = None
-        self.submit = submit
-        box = QVBoxLayout(self)
-        box.addWidget(label(title, "title"))
-        box.addWidget(label("4 haneli bir yönetici şifresi seçin. Personel PIN’lerinden farklı olmalı; "
-                            "1111 ya da 1234 gibi kolay şifreler kabul edilmez."
-                            if setup else "Yönetici şifrenizi girin.", "subtitle"))
-        # Login also accepts a longer legacy password so older installs can still sign in.
-        self.password = code_edit("4 haneli şifre") if setup else secret_edit()
-        if not setup:
-            self.password.setPlaceholderText("4 haneli şifre")
-        box.addWidget(self.password)
-        self.repeat = code_edit() if setup else None
-        if self.repeat:
-            self.repeat.setPlaceholderText("Şifreyi tekrar girin")
-            box.addWidget(self.repeat)
-        self.error = label("", "warning")
-        self.error.hide()
-        box.addWidget(self.error)
-        box.addWidget(button("Kurulumu tamamla" if setup else "Giriş yap", self.confirm, True))
-        box.addWidget(button("Vazgeç", self.reject))
-        self.password.returnPressed.connect(self.confirm)
-
-    def confirm(self):
-        try:
-            if self.repeat and self.password.text() != self.repeat.text():
-                raise AppError("Şifreler aynı değil.")
-            self.result_value = self.submit(self.password.text()) if self.submit else self.password.text()
-            self.password.clear()
-            if self.repeat:
-                self.repeat.clear()
-            self.accept()
-        except AppError as exc:
-            self.error.setText(str(exc))
-            self.error.show()
-            self.password.clear()
-
-    def done(self, result):
-        self.password.clear()
-        if self.repeat:
-            self.repeat.clear()
-        super().done(result)
 
 
 def fit_to_screen(widget, width, height, center=True):
@@ -739,6 +693,41 @@ class SessionDialog(FormDialog):
         self.accept()
 
 
+class ClosePeriodDialog(FormDialog):
+    """Pick a finished month to close; shows that month's totals before confirming."""
+    def __init__(self, service, token, months, parent=None):
+        super().__init__("Ay kapat", parent)
+        self.service, self.token = service, token
+        self.month = QComboBox()
+        for key in reversed(months):
+            self.month.addItem(periods.month_label(key), key)
+        self.summary = label("", "subtitle")
+        self.form.addRow("Kapatılacak ay", self.month)
+        self.form.addRow(self.summary)
+        self.form.addRow(label("Kapatılınca bu ay ve önceki aylarda kayıt ve ödeme eklenemez, değiştirilemez. "
+                               "Gerekirse yönetici şifresi ve gerekçeyle yeniden açılır.", "warning"))
+        self.buttons.button(QDialogButtonBox.StandardButton.Save).setText("Ayı kapat")
+        self.buttons.accepted.connect(self.save)
+        self.month.currentIndexChanged.connect(self.show_totals)
+        self.show_totals()
+
+    @guarded
+    def show_totals(self):
+        key = self.month.currentData()
+        report = build_report(self.service, self.token, periods.month_first(key), periods.month_last(key))
+        rows = report["summary"]
+        self.summary.setText(
+            f"{periods.month_label(key)}: {sum(1 for r in rows if r['seconds'])} kişi, "
+            f"{th.hours_text(sum(r['seconds'] for r in rows))}, ön hak ediş {tl(sum(r['cents'] for r in rows))} TL, "
+            f"ödeme/avans {tl(sum(r['paid_cents'] for r in rows))} TL, "
+            f"ay sonu bakiye {tl(sum(r['balance_cents'] for r in rows))} TL.")
+
+    @guarded
+    def save(self):
+        self.service.close_period(self.token, self.month.currentData())
+        self.accept()
+
+
 class PaymentDialog(FormDialog):
     def __init__(self, service, token, parent=None):
         super().__init__("Ödeme / avans ekle", parent)
@@ -1109,6 +1098,11 @@ class AdminDialog(QDialog):
         box.addWidget(self.report_table)
         self.toolbar(box, [("CSV indir", lambda: self.export(".csv")),
                            ("Excel indir", lambda: self.export(".xlsx"))])
+        frame, inner = panel("kapalı dönem")
+        self.period_note = label("", "subtitle")
+        inner.addWidget(self.period_note)
+        self.toolbar(inner, [("Ay kapat", self.close_period), ("Son kapatılan ayı aç", self.reopen_period)])
+        box.addWidget(frame)
         self.report = None
 
     def payments_tab(self):
@@ -1196,6 +1190,11 @@ class AdminDialog(QDialog):
         self.review_note.setText(f"İnceleme bekleyen {pending} kayıt var. “inceleme bekleyenler” kutusuyla "
                                  "listeleyip saatleri kontrol ederek kaydedin.")
         self.review_note.setVisible(bool(pending))
+        month = self.service.closed_month
+        self.period_note.setText(
+            f"{periods.month_label(month)} ve öncesi kapalı: bu aylarda kayıt ve ödeme değiştirilemez."
+            if month else "Henüz kapatılmış ay yok. Ödemeleri tamamlanan ayı kapatın; "
+                          "o ay ve öncesi değiştirilemez olur, raporlar da hızlanır.")
         f = self.payment_filter.values()
         self.payment_rows = self.service.payments(self.token, f["eid"], f["since"], f["until"])
         fill_table(self.payment_table, [[p["id"], p["name"], self.service.display_time(p["paid_at"], False),
@@ -1472,6 +1471,28 @@ class AdminDialog(QDialog):
                          submit, self, "Değişiklikten sonra yeniden giriş yapmanız gerekir.")
         if dlg.exec():
             self.accept()
+
+    @guarded
+    def close_period(self):
+        months = self.service.closable_months(self.token)
+        if not months:
+            raise AppError("Kapatılabilecek ay yok: ay henüz bitmemiş ya da önceki aylar zaten kapalı.")
+        if ClosePeriodDialog(self.service, self.token, months, self).exec():
+            self.refresh()
+
+    @guarded
+    def reopen_period(self):
+        month = self.service.closed_month
+        if not month:
+            raise AppError("Kapalı dönem yok.")
+        code = CodeDialog(f"{periods.month_label(month)} dönemini aç", ["yönetici şifresini gir"],
+                          lambda codes: codes[0], self, "Önceki aylar kapalı kalır.")
+        if not code.exec():
+            return
+        if ReasonDialog(f"{periods.month_label(month)} dönemini yeniden aç",
+                        lambda reason: self.service.reopen_period(self.token, code.result_value, reason),
+                        self).exec():
+            self.refresh()
 
     @guarded
     def new_recovery_key(self):

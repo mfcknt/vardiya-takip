@@ -67,6 +67,10 @@ Her `main` gönderiminde GitHub Actions Windows üzerinde tüm testleri çalış
 
 ## Hesaplama kuralları
 
+**Kapalı dönem:** Ödemeleri biten ay hak ediş sayfasından kapatılır. O ay ve öncesinde kayıt ve ödeme
+artık değiştirilemez; raporlar da eski kayıtları yeniden okumadığı için hızlı kalır. Gerekirse son kapatılan ay
+yönetici şifresi ve gerekçeyle yeniden açılır.
+
 Zamanlar UTC Unix saniyesi olarak saklanır; ekran ve gün sınırları `Europe/Istanbul`
 saat dilimini kullanır. İşletme saat dilimi ilk kurulumda servis katmanına verilebilir;
 MVP ekranı İstanbul’u kullanır ve geçmiş raporların değişmemesi için sonradan değiştirme sunmaz.

@@ -54,3 +54,32 @@ def caption(first: date, last: date):
     if first.day == 1 and (first.year, first.month) == (last.year, last.month):
         return f"{MONTHS[first.month - 1]} {first.year} · {days} gün"
     return f"{days} gün"
+
+
+# --- calendar months as "YYYY-MM" keys (closed periods) ---------------------
+
+def month_key(day: date):
+    return f"{day.year:04d}-{day.month:02d}"
+
+
+def month_first(key):
+    year, month = map(int, key.split("-"))
+    return date(year, month, 1)
+
+
+def month_last(key):
+    return month_first(month_after(key)) - timedelta(days=1)
+
+
+def month_after(key):
+    first = month_first(key)
+    return month_key(date(first.year + first.month // 12, first.month % 12 + 1, 1))
+
+
+def month_before(key):
+    return month_key(month_first(key) - timedelta(days=1))
+
+
+def month_label(key):
+    first = month_first(key)
+    return f"{MONTHS[first.month - 1]} {first.year}"

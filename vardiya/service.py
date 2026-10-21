@@ -1,3 +1,4 @@
+import json
 import re
 import secrets
 import sys
@@ -6,6 +7,7 @@ import uuid
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+from . import periods
 from .security import AppError, hash_secret, validate_password, validate_pin, verify_secret
 from .reports import business_day, midnight
 from .health import Health
@@ -142,6 +144,101 @@ class Service:
             self.db.set_meta("day_start_hour", hour)
             self.db.audit(self.clock.wall(), "admin", "SETTING_CHANGE", "day_start_hour",
                           before={"day_start_hour": before}, after={"day_start_hour": hour}, reason=reason)
+        state = self.closed_state()
+        if state:
+            # Day splits moved, so the stored closing balances are recomputed (same months stay closed).
+            self._write_closed(token, state["month"], state["history"], "PERIOD_RECALC",
+                               "İş günü başlangıcı değişti; kapanış bakiyeleri yeniden hesaplandı.")
+
+    # --- closed periods: every month up to `month` is final ---------------------
+    # meta "closed_period" = {"month": "YYYY-MM", "history": [...closed months in order],
+    # "balances": {employee id: balance in kuruş at the end of that month}}. The balances let
+    # reports after the closed month skip reading the whole history.
+
+    def closed_state(self):
+        value = json.loads(self.db.meta("closed_period", "null"))
+        return value or None
+
+    @property
+    def closed_month(self):
+        state = self.closed_state()
+        return state["month"] if state else None
+
+    def closed_until(self, month=None):
+        """First timestamp after a closed month (records starting before it are locked)."""
+        month = month or self.closed_month
+        if not month:
+            return None
+        first_open = periods.month_first(periods.month_after(month))
+        return self.day_bounds(first_open, first_open)[0]
+
+    def _require_open(self, *timestamps):
+        until = self.closed_until()
+        if until is not None and any(t is not None and t < until for t in timestamps):
+            raise AppError(f"{periods.month_label(self.closed_month)} ve öncesi kapalı dönem; kayıt ve ödemeler "
+                           "değiştirilemez. Gerekirse hak ediş sayfasından dönemi yeniden açın.")
+
+    def closable_months(self, token):
+        """Months that may be closed now: after the closed one, with records, fully in the past."""
+        self.require_admin(token)
+        today = self.business_day(self.clock.wall())
+        first = self.db.conn.execute("""SELECT MIN(t) FROM (SELECT MIN(start_at) AS t FROM sessions WHERE voided=0
+            UNION ALL SELECT MIN(paid_at) FROM payments WHERE voided=0)""").fetchone()[0]
+        if first is None:
+            return []
+        month = periods.month_key(self.business_day(first))
+        if self.closed_month and month <= self.closed_month:
+            month = periods.month_after(self.closed_month)
+        months = []
+        while periods.month_last(month) < today:
+            months.append(month)
+            month = periods.month_after(month)
+        return months
+
+    def close_period(self, token, month):
+        """Close `month` and every month before it. Refused while records there need attention."""
+        if month not in self.closable_months(token):
+            raise AppError("Bu ay kapatılamaz: ay bitmemiş, zaten kapalı veya hiç kaydı yok.")
+        until = self.closed_until(month)
+        open_count, review_count = self.db.conn.execute("""SELECT
+            SUM(end_at IS NULL), SUM(end_at IS NOT NULL AND review<>'') FROM sessions
+            WHERE voided=0 AND start_at<?""", (until,)).fetchone()
+        if open_count:
+            raise AppError(f"Bu dönemde çıkışı yapılmamış {open_count} kayıt var; önce çıkış saatlerini girin.")
+        if review_count:
+            raise AppError(f"Bu dönemde inceleme bekleyen {review_count} kayıt var; önce kontrol edip kaydedin.")
+        state = self.closed_state()
+        history = (state["history"] if state else []) + [month]
+        self._write_closed(token, month, history, "PERIOD_CLOSE",
+                           f"{periods.month_label(month)} ve öncesi kapatıldı.")
+
+    def reopen_period(self, token, admin_code, reason):
+        """Reopen the last closed month (the one before it stays closed). Needs the admin code again."""
+        self.require_admin(token)
+        reason = reason_text(reason)
+        state = self.closed_state()
+        if not state:
+            raise AppError("Kapalı dönem yok.")
+        self._authenticate("admin", admin_code)
+        history = state["history"][:-1]
+        self._write_closed(token, history[-1] if history else None, history, "PERIOD_REOPEN", reason)
+
+    def _write_closed(self, token, month, history, action, reason):
+        from .reports import build_report
+        balances = {}
+        if month:
+            last = periods.month_last(month)
+            # Full recomputation (never from the old snapshot), done before the write transaction.
+            report = build_report(self, token, last, last, use_closed=False)
+            balances = {str(r["employee_id"]): r["balance_cents"] for r in report["summary"]
+                        if r["balance_cents"]}
+        state = {"month": month, "history": history, "balances": balances} if month else None
+        with self.db.transaction():
+            before = self.closed_state()
+            self.db.set_meta("closed_period", json.dumps(state, sort_keys=True))
+            self.db.audit(self.clock.wall(), "admin", action, "period",
+                          before={"month": before["month"] if before else None},
+                          after=state or {"month": None}, reason=reason)
 
     @property
     def theme(self):
@@ -556,6 +653,7 @@ class Service:
                 raise AppError("Kayıt değişmiş. Ekranı yenileyip tekrar deneyin.")
             if row["voided"]:
                 raise AppError("İptal edilmiş kayıt yeniden düzenlenemez.")
+            self._require_open(row["start_at"], start)
             if void:
                 start, end = row["start_at"], row["end_at"]
             else:
@@ -594,6 +692,7 @@ class Service:
             duplicate = self._receipt(request_id, fingerprint)
             if duplicate is not None:
                 return duplicate
+            self._require_open(start)
             employee = self.db.conn.execute("SELECT active FROM employees WHERE id=?", (eid,)).fetchone()
             if not employee:
                 raise AppError("Personel bulunamadı.")
@@ -633,6 +732,7 @@ class Service:
             duplicate = self._receipt(request_id, fingerprint)
             if duplicate is not None:
                 return duplicate
+            self._require_open(paid_at)
             if not self.db.conn.execute("SELECT 1 FROM employees WHERE id=?", (eid,)).fetchone():
                 raise AppError("Personel bulunamadı.")
             recent = self.db.conn.execute("""SELECT id FROM payments WHERE employee_id=?
@@ -656,6 +756,7 @@ class Service:
             row = self.db.conn.execute("SELECT * FROM payments WHERE id=? AND voided=0", (pid,)).fetchone()
             if not row:
                 raise AppError("Ödeme bulunamadı veya zaten iptal edilmiş.")
+            self._require_open(row["paid_at"])
             self.db.conn.execute("UPDATE payments SET voided=1 WHERE id=?", (pid,))
             self.db.audit(self.clock.wall(), "admin", "PAYMENT_VOID", f"payment:{pid}",
                           before=dict(row), after={"voided": True}, reason=reason)

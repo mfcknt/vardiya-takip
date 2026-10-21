@@ -622,3 +622,29 @@ def test_setup_and_settings_show_a_new_recovery_key(qapp, system, monkeypatch):
         s.recover_admin("0" * 20, "5826")
     s.recover_admin(shown[0], "5826")
     panel.reject()
+
+
+def test_close_and_reopen_a_month_from_the_earnings_page(qapp, system, monkeypatch):
+    from vardiya import ui
+    s, c, token, eid = system
+    s.manual_session(token, eid, ts("2026-09-10T09:00"), ts("2026-09-10T17:00"), 15000, "Eylül", str(uuid.uuid4()))
+    panel = AdminDialog(s, token)
+    assert "Henüz kapatılmış ay yok" in panel.period_note.text()
+    dialog = ui.ClosePeriodDialog(s, token, s.closable_months(token), panel)
+    assert dialog.month.currentText() == "eylül 2026"
+    assert "1 kişi, 8 sa, ön hak ediş 1.200,00 TL" in dialog.summary.text()
+    dialog.save()
+    panel.refresh()
+    assert panel.period_note.text().startswith("eylül 2026 ve öncesi kapalı")
+    assert panel.audit_table.item(0, 3).text() == "Dönem kapatıldı"
+    assert panel.audit_table.item(0, 4).text() == "Kapalı dönem"
+    monkeypatch.setattr(ui.CodeDialog, "exec", lambda self: setattr(self, "result_value", PASSWORD) or 1)
+
+    def reason_exec(self):
+        self.reason.setText("Eylül ödemesi düzeltilecek")
+        self.save()
+        return self.result()
+    monkeypatch.setattr(ui.ReasonDialog, "exec", reason_exec)
+    panel.reopen_period()
+    assert s.closed_month is None and "Henüz kapatılmış ay yok" in panel.period_note.text()
+    panel.reject()

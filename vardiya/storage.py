@@ -323,6 +323,7 @@ def inspect_database(path: Path) -> list[str]:
                 errors.append("Personel kimlik bilgisi eksik.")
             previous = "0" * 64
             snapshots = {}
+            period = {"month": None}
             for row in conn.execute("""SELECT at,actor,action,entity,before_json,after_json,
                                       reason,previous_hash,hash FROM audit ORDER BY id"""):
                 if row[7] != previous or row[8] != audit_hash(previous, list(row[:7])):
@@ -332,6 +333,8 @@ def inspect_database(path: Path) -> list[str]:
                 after = json.loads(row[5])
                 if isinstance(after, dict) and row[3].startswith(("session:", "employee:", "payment:")):
                     snapshots.setdefault(row[3], {}).update(after)
+                if row[3] == "period":
+                    period = after
             for table, entity, fields in [
                 ("sessions", "session", ("employee_id", "start_at", "end_at", "rate_cents", "voided",
                                          "revision", "review")),
@@ -350,6 +353,11 @@ def inspect_database(path: Path) -> list[str]:
                     if key.startswith(entity + ":") and int(key.split(":")[1]) not in record_ids:
                         errors.append(f"Geçmişte bulunan {table} kaydı eksik.")
                         break
+            # Closing balances drive later reports, so they must equal the last audited closing.
+            stored = conn.execute("SELECT value FROM meta WHERE key='closed_period'").fetchone()
+            stored = json.loads(stored[0]) if stored else None
+            if (stored or {"month": None}) != period:
+                errors.append("Kapalı dönem bilgisi işlem geçmişiyle uyuşmuyor.")
         finally:
             conn.close()
     except (sqlite3.Error, OSError, ValueError) as exc:
