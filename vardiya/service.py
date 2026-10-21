@@ -48,7 +48,8 @@ def valid_cents(value, positive=False):
 
 
 LOCK_AFTER = 5            # failed attempts before a lock
-ADMIN_LOCK_SECONDS = 300
+ADMIN_LOCK_STEPS = (300, 900, 1800, 3600)    # 5 min, 15 min, 30 min, then 1 hour each time
+ADMIN_LOCK_SECONDS = ADMIN_LOCK_STEPS[0]
 STAFF_LOCK_STEPS = (30, 60, 120, 240, 300)   # escalating staff PIN locks
 LONG_GAP_SECONDS = 36 * 3600
 DEFAULT_DAY_START_HOUR = 5    # restaurants closing after midnight: 00:00–04:59 is "yesterday"
@@ -61,6 +62,13 @@ def staff_lock_seconds(failures):
     if failures < LOCK_AFTER:
         return 0
     return STAFF_LOCK_STEPS[min(failures - LOCK_AFTER, len(STAFF_LOCK_STEPS) - 1)]
+
+
+def admin_lock_seconds(failures):
+    """With only 10,000 four-digit codes, admin locks grow to an hour per attempt."""
+    if failures < LOCK_AFTER:
+        return 0
+    return ADMIN_LOCK_STEPS[min(failures - LOCK_AFTER, len(ADMIN_LOCK_STEPS) - 1)]
 
 
 def reason_text(reason):
@@ -256,13 +264,10 @@ class Service:
                 error = lock_message(row["locked_until"] - now, subject != "admin")
             elif not verify_secret(secret, row["secret"]):
                 failures = row["failures"] + 1
-                if subject == "admin":
-                    seconds = ADMIN_LOCK_SECONDS if failures >= LOCK_AFTER else 0
-                    stored = 0 if seconds else failures
-                else:
-                    # Staff locks escalate and the counter only resets on a
-                    # correct PIN, an admin unlock or a PIN change.
-                    seconds, stored = staff_lock_seconds(failures), failures
+                # Locks escalate; the counter only resets on a correct code,
+                # an admin unlock (staff) or a code change.
+                lock_for = admin_lock_seconds if subject == "admin" else staff_lock_seconds
+                seconds, stored = lock_for(failures), failures
                 locked = now + seconds if seconds else 0
                 self.db.conn.execute(
                     "UPDATE credentials SET failures=?,locked_until=? WHERE subject=?",
@@ -304,7 +309,8 @@ class Service:
         validate_password(new)
         encoded = hash_secret(new)
         with self.db.transaction():
-            self.db.conn.execute("UPDATE credentials SET secret=? WHERE subject='admin'", (encoded,))
+            self.db.conn.execute(
+                "UPDATE credentials SET secret=?,failures=0,locked_until=0 WHERE subject='admin'", (encoded,))
             self.db.audit(self.clock.wall(), "admin", "PASSWORD_CHANGE", "admin")
         self._tokens.clear()
 
@@ -346,12 +352,19 @@ class Service:
             self.db.audit(self.clock.wall(), "admin", "AUTH_UNLOCK", f"staff:{eid}",
                           before=dict(row), reason=reason)
 
+    def _not_admin_code(self, pin):
+        """A staff PIN equal to the admin code would open the admin panel to that person."""
+        row = self.db.conn.execute("SELECT secret FROM credentials WHERE subject='admin'").fetchone()
+        if row and verify_secret(pin, row["secret"]):
+            raise AppError("Bu PIN yönetici şifresiyle aynı olamaz; başka bir PIN seçin.")
+
     def add_employee(self, token, name, pin, rate_cents):
         self.require_admin(token)
         name = name.strip()
         if not 1 <= len(name) <= 80:
             raise AppError("Ad soyad 1–80 karakter olmalı.")
         validate_pin(pin)
+        self._not_admin_code(pin)
         valid_cents(rate_cents)
         encoded, now = hash_secret(pin), self.clock.wall()
         with self.db.transaction():
@@ -379,6 +392,7 @@ class Service:
         encoded = None
         if pin:
             validate_pin(pin)
+            self._not_admin_code(pin)
             encoded = hash_secret(pin)
         with self.db.transaction():
             before = self.db.conn.execute("SELECT * FROM employees WHERE id=?", (eid,)).fetchone()

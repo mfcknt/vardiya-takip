@@ -20,7 +20,7 @@ from . import theme as th
 from .backup import automatic_backup, backup_usage, create_backup, restore_database
 from .formatting import cents, tl
 from .reports import build_report, duration, export_audit, export_report
-from .security import AppError
+from .security import PIN_LENGTH, AppError
 from .storage import inspect_database
 from .widgets import (
     Backdrop, HeatmapWidget, PersonRing, PinDots, RingWidget, StatTile, TimelineWidget, WelcomeDialog,
@@ -117,6 +117,14 @@ def secret_edit(max_length=128):
     field = QLineEdit()
     field.setEchoMode(QLineEdit.EchoMode.Password)
     field.setMaxLength(max_length)
+    return field
+
+
+def code_edit(placeholder="4 rakam"):
+    """A masked field that accepts exactly the 4-digit codes used for staff and admin."""
+    field = secret_edit(PIN_LENGTH)
+    field.setValidator(QRegularExpressionValidator(QRegularExpression("[0-9]{0,%d}" % PIN_LENGTH)))
+    field.setPlaceholderText(placeholder)
     return field
 
 
@@ -230,11 +238,15 @@ class PasswordDialog(QDialog):
         self.submit = submit
         box = QVBoxLayout(self)
         box.addWidget(label(title, "title"))
-        box.addWidget(label("En az 12 karakter. Bu şifre personel PIN’lerinden ayrıdır."
+        box.addWidget(label("4 haneli bir yönetici şifresi seçin. Personel PIN’lerinden farklı olmalı; "
+                            "1111 ya da 1234 gibi kolay şifreler kabul edilmez."
                             if setup else "Yönetici şifrenizi girin.", "subtitle"))
-        self.password = secret_edit()
+        # Login also accepts a longer legacy password so older installs can still sign in.
+        self.password = code_edit("4 haneli şifre") if setup else secret_edit()
+        if not setup:
+            self.password.setPlaceholderText("4 haneli şifre")
         box.addWidget(self.password)
-        self.repeat = secret_edit() if setup else None
+        self.repeat = code_edit() if setup else None
         if self.repeat:
             self.repeat.setPlaceholderText("Şifreyi tekrar girin")
             box.addWidget(self.repeat)
@@ -298,7 +310,7 @@ class PinDialog(QDialog):
             local = datetime.fromtimestamp(employee["start_at"], service.zone)
             hint = f"{local:%H:%M}'dan beri içeride · pin'ini gir"
         else:
-            hint = "6 haneli pin'ini gir"
+            hint = "4 haneli pin'ini gir"
         sub = label(hint, "subtitle")
         sub.setAlignment(Qt.AlignmentFlag.AlignHCenter)
         box.addWidget(sub)
@@ -306,12 +318,13 @@ class PinDialog(QDialog):
             box.addWidget(label("Bu kayıt önceki iş gününden açık kalmış; çıkış yapılmamış. "
                                 "Şimdi kapatabilirsin, kayıt yöneticiye işaretlenir ve gerçek çıkış "
                                 "saatini yönetici girer. Ardından yeni giriş yapabilirsin.", "warning"))
-        self.pin = secret_edit(6)
+        self.pin = secret_edit(PIN_LENGTH)
         self.pin.setObjectName("pin")
-        self.pin.setValidator(QRegularExpressionValidator(QRegularExpression("[0-9]{0,6}")))
+        self.pin.setValidator(QRegularExpressionValidator(QRegularExpression("[0-9]{0,%d}" % PIN_LENGTH)))
         self.pin.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.pin.setAccessibleName("Altı haneli personel PIN")
-        self.dots = PinDots()
+        self.dots = PinDots(PIN_LENGTH)
+        self._submit_pending = False
         self.pin.textChanged.connect(lambda text: self.dots.set_filled(len(text)))
         box.addSpacing(6)
         box.addWidget(self.dots, 0, Qt.AlignmentFlag.AlignHCenter)
@@ -348,8 +361,15 @@ class PinDialog(QDialog):
             self.pin.backspace()
         else:
             self.pin.insert(text)
+            if len(self.pin.text()) == PIN_LENGTH and not self._submit_pending:
+                # Submit on the last digit; the short pause lets the last dot pop in.
+                self._submit_pending = True
+                QTimer.singleShot(160, self, self.confirm)
 
     def confirm(self):
+        self._submit_pending = False
+        if self.result_sid is not None:
+            return
         self.confirm_button.setEnabled(False)
         try:
             self.result_sid = self.service.attendance(self.employee["id"], self.pin.text(), self.action,
@@ -376,8 +396,7 @@ class EmployeeDialog(FormDialog):
         self.service, self.token, self.employee = service, token, employee
         self.name = QLineEdit(employee["name"] if employee else "")
         self.name.setMaxLength(80)
-        self.pin = secret_edit(6)
-        self.pin.setPlaceholderText("Değiştirmemek için boş bırakın" if employee else "6 rakam")
+        self.pin = code_edit("Değiştirmemek için boş bırakın" if employee else "4 rakam")
         self.rate = QLineEdit(tl(employee["rate_cents"]) if employee else "")
         self.active = QCheckBox("Aktif personel")
         self.active.setChecked(bool(employee["active"]) if employee else True)
@@ -1104,7 +1123,7 @@ class AdminDialog(QDialog):
     @guarded
     def change_password(self):
         dlg = FormDialog("Yönetici şifresini değiştir", self)
-        old, new, repeat = secret_edit(), secret_edit(), secret_edit()
+        old, new, repeat = secret_edit(), code_edit(), code_edit()
         dlg.form.addRow("Mevcut şifre", old)
         dlg.form.addRow("Yeni şifre", new)
         dlg.form.addRow("Yeni şifre tekrar", repeat)
@@ -1219,7 +1238,7 @@ class MainWindow(QMainWindow):
         bottom = QHBoxLayout()
         self.status = label("çevrimdışı · tüm kayıtlar bu bilgisayarda", "status")
         bottom.addWidget(self.status, 1)
-        bottom.addWidget(label("6 haneli pin ile", "faint"))
+        bottom.addWidget(label("4 haneli pin ile", "faint"))
         box.addLayout(bottom)
 
         self.retheme()

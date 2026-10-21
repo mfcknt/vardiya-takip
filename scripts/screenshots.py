@@ -25,7 +25,7 @@ from vardiya.ui import AdminDialog, MainWindow, PinDialog, apply_theme  # noqa: 
 from vardiya.widgets import WelcomeDialog  # noqa: E402
 
 ZONE = ZoneInfo("Europe/Istanbul")
-PASSWORD = "Ornek!Yonetici2026"
+PASSWORD = "3917"
 
 
 def ts(text):
@@ -47,10 +47,10 @@ def seed(service, clock):
     service.setup(PASSWORD)
     token = service.login_admin(PASSWORD)
     staff = {}
-    for name, pin, rate in [("Ayşe Yılmaz", "482957", 15000), ("Can Arslan", "573819", 14000),
-                            ("Zeynep Aydın", "684920", 15000), ("Elif Demir", "795031", 13500),
-                            ("Mehmet Kaya", "806142", 14000), ("Ece Çelik", "917253", 13000),
-                            ("Burak Şahin", "128364", 14500)]:
+    for name, pin, rate in [("Ayşe Yılmaz", "4829", 15000), ("Can Arslan", "5738", 14000),
+                            ("Zeynep Aydın", "6849", 15000), ("Elif Demir", "7950", 13500),
+                            ("Mehmet Kaya", "8061", 14000), ("Ece Çelik", "9172", 13000),
+                            ("Burak Şahin", "1283", 14500)]:
         staff[name.split()[0]] = service.add_employee(token, name, pin, rate)
 
     def shift(who, start, end, note="Örnek vardiya"):
@@ -80,7 +80,7 @@ def seed(service, clock):
     service.tick()                                   # flags Elif's open record
     for _ in range(5):                               # Mehmet mistyped his PIN
         try:
-            service.attendance(staff["Mehmet"], "111222", "start", None, str(uuid.uuid4()))
+            service.attendance(staff["Mehmet"], "1112", "start", None, str(uuid.uuid4()))
         except AppError:
             pass
     clock.now += 20

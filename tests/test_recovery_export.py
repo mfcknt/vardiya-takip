@@ -50,7 +50,7 @@ def test_invalid_backup_and_wrong_password_do_not_modify_target(system, tmp_path
 def test_restore_requires_current_password_when_target_is_healthy(system, tmp_path):
     s, _, token, _ = system
     backup = create_backup(s.db, tmp_path / "old.sqlite3")
-    new_password = "YeniYonetici!2026"
+    new_password = "8264"
     s.change_password(token, PASSWORD, new_password)
     path = s.db.path
     s.db.close()

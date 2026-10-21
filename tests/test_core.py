@@ -216,7 +216,8 @@ def test_void_old_open_record_and_archive_protection(system):
         s.manual_session(token, eid, c.now - 60, None, 15000, "Arşiv açık kayıt", uid())
 
 
-@pytest.mark.parametrize("pin", ["123456", "111111", "543210", "12345", "1234567", "１２３４５６", "abc123"])
+@pytest.mark.parametrize("pin", ["1234", "4321", "0123", "6789", "1111", "1212", "1122", "123", "12345",
+                                 "１２３４", "abc1", ""])
 def test_reject_weak_or_invalid_pins(pin):
     with pytest.raises(AppError):
         validate_pin(pin)
@@ -227,7 +228,7 @@ def test_salted_passwords_and_no_plaintext(system):
     first, second = hash_secret(PIN), hash_secret(PIN)
     assert first != second
     assert verify_secret(PIN, first)
-    assert not verify_secret("000000", first)
+    assert not verify_secret("0009", first)
     content = s.db.path.read_bytes()
     assert PIN.encode() not in content
     assert PASSWORD.encode() not in content
@@ -237,7 +238,7 @@ def test_pin_lock_persists_restart(system):
     s, c, _, eid = system
     for _ in range(5):
         with pytest.raises(AppError):
-            s.attendance(eid, "192837", "start", None, uid())
+            s.attendance(eid, "1928", "start", None, uid())
     s.db.close()
     s.db = Database(s.db.path)
     with pytest.raises(AppError, match="kilid"):
@@ -256,21 +257,21 @@ def test_admin_authorization_expiry_and_change(system):
     with pytest.raises(AppError):
         s.employees(token)
     token = admin(s)
-    s.change_password(token, PASSWORD, "YeniGuvenliSifre2026!")
+    s.change_password(token, PASSWORD, "7391")
     with pytest.raises(AppError):
         s.employees(token)
     with pytest.raises(AppError):
         s.login_admin(PASSWORD)
-    assert s.login_admin("YeniGuvenliSifre2026!")
+    assert s.login_admin("7391")
 
 
 def test_admin_lock_and_setup_cannot_be_overwritten(system):
     s, c, _, _ = system
     with pytest.raises(AppError):
-        s.setup("FarkliSifre!2026")
+        s.setup("5162")
     for _ in range(5):
         with pytest.raises(AppError):
-            s.login_admin("YanlisSifre123")
+            s.login_admin("9990")
     with pytest.raises(AppError, match="kilid"):
         s.login_admin(PASSWORD)
     c.advance(301)
@@ -279,7 +280,7 @@ def test_admin_lock_and_setup_cannot_be_overwritten(system):
 
 def test_sql_injection_stored_as_text(system):
     s, _, token, _ = system
-    eid = s.add_employee(token, "'); DROP TABLE employees;--", "573819", 100)
+    eid = s.add_employee(token, "'); DROP TABLE employees;--", "5738", 100)
     assert any(r["id"] == eid for r in s.employees(token))
     assert len(s.employees(token)) == 2
 
@@ -344,7 +345,7 @@ def test_audit_append_only_and_tamper_detection(system):
 def test_invalid_money_rejected(system, amount):
     s, _, token, _ = system
     with pytest.raises(AppError):
-        s.add_employee(token, "Test", "573819", amount)
+        s.add_employee(token, "Test", "5738", amount)
 
 
 def test_report_range_validation(system):

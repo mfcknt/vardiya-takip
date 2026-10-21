@@ -21,9 +21,9 @@ Mola ve planlanan vardiya özellikleri yoktur.
 2. Python 3.12 x64 kurulu olsun. İlk kurulum için internet gerekir.
 3. `Kurulum.cmd` dosyasını açın. Bağımlılıkları kurar ve testleri çalıştırır.
 4. `Baslat.cmd` dosyasını açın.
-5. İlk açılışta en az 12 karakterli bir yönetici şifresi belirleyin.
-6. Yönetici → Personel → Personel ekle: ad soyad, 6 haneli PIN, saatlik TL ücretini girin.
-7. Ana ekranda personeli seçin, PIN’i girin ve **İşe Başla / İşi Bitir** düğmesine dokunun.
+5. İlk açılışta 4 haneli bir yönetici şifresi belirleyin (personel PIN’lerinden farklı).
+6. Yönetici → Personel → Personel ekle: ad soyad, 4 haneli PIN, saatlik TL ücretini girin.
+7. Ana ekranda personelin halkasına dokunun ve PIN’i girin; 4. rakamda işlem kendiliğinden yapılır.
 
 Varsayılan şifre, önceden tanımlı personel veya gizli şifre sıfırlama yolu yoktur.
 Kurulumdan sonraki normal kullanım internetsizdir. Bulut bağlantısı, telemetri veya sunucu yoktur.
@@ -112,15 +112,20 @@ Geri yüklemeden sonra yedek tarihindeki yönetici şifresi ve personel PIN’le
 ## Güvenlik sınırları
 
 PIN ve yönetici şifreleri ayrı rastgele tuzla PBKDF2-HMAC-SHA256, 600.000 tur kullanılarak
-saklanır. PIN tam 6 ASCII rakamdır; aynı rakamdan oluşan ve bazı kolay sıralı PIN’ler reddedilir.
+saklanır. Personel PIN’i ve yönetici şifresi tam 4 rakamdır; 1111, 1234/4321, 1212 ve 1122 gibi tekrarlı
+ya da sıralı şifreler reddedilir. Bir personel PIN’i yönetici şifresiyle aynı olamaz.
 Personel PIN’inde 5. hatalı denemeden sonra kilit kademeli uzar: 30 sn, 1 dk, 2 dk, 4 dk, en çok 5 dk.
 Sayaç yalnızca doğru PIN, yönetici kilit kaldırması veya PIN değişikliğiyle sıfırlanır.
 Kilit ana ekranda personel kartında görünür; Yönetici → Personel → **Kilidi kaldır** gerekçeyle açar.
-Yönetici şifresi 5 hatalı denemede 5 dakika kilitlenir. Kilitler yeniden başlatmada korunur.
+Yönetici şifresinde 5. hatalı denemeden sonra kilit 5 dk, 15 dk, 30 dk ve ardından her denemede 1 saat olur;
+4 haneli şifrenin 10.000 olasılığı bu sayede kasadan tahminle aylar içinde bile bulunamaz.
+Sayaç doğru şifre veya şifre değişikliğiyle sıfırlanır. Kilitler yeniden başlatmada korunur.
+Eski kurulumlardaki uzun yönetici şifresiyle giriş yapılabilir; ardından Ayarlar’dan 4 haneli şifreye geçin.
 
 SQLite dosyası ve yedekler **şifreli değildir**. Dosyaları okuyabilen bir kişi personel ve ücret
 verilerini okuyabilir; işletim sistemi yöneticisi uygulama kontrollerini aşabilir.
-6 haneli PIN’in olası değer sayısı sınırlıdır; dosya erişimine karşı güçlü bir parola yerine geçmez.
+4 haneli kodların olası değer sayısı küçüktür; veri dosyasını kopyalayabilen biri kodları bilgisayarında
+deneyerek bulabilir. Dosya erişimine karşı koruma Windows hesabı, klasör izinleri ve disk şifrelemesidir.
 Windows hesap/klasör izinleri ve disk şifrelemesi bu sınırın dışındaki korumalardır.
 Uygulama bir Windows kiosk kilidi değildir; işletim sistemine erişimi engellemez.
 

@@ -15,7 +15,7 @@ from vardiya.security import AppError
 from vardiya.service import STAFF_LOCK_STEPS, staff_lock_seconds
 from vardiya.storage import OVERLAP_SQL, fsync_file, inspect_database
 
-WRONG = "192837"
+WRONG = "1928"
 
 
 def uid():
@@ -71,7 +71,7 @@ def test_inspection_scales_linearly(system):
     """3 years x 30 staff must stay well under the old ~1.7 s heartbeat cost."""
     import time
     s, c, token, _ = system
-    ids = [s.add_employee(token, f"P{i}", "%06d" % (271828 + i * 7919), 15000) for i in range(29)]
+    ids = [s.add_employee(token, f"P{i}", "4829", 15000) for i in range(29)]
     ids.append(1)
     base = c.now - 3 * 365 * 86400
     with s.db.transaction():
@@ -253,7 +253,7 @@ def test_clock_set_back_before_start_tells_staff_to_ask_admin(system):
 
 def test_session_payment_and_audit_filters(system):
     s, c, token, eid = system
-    other = s.add_employee(token, "Can Arslan", "573819", 12000)
+    other = s.add_employee(token, "Can Arslan", "5738", 12000)
     old = s.manual_session(token, eid, ts("2026-09-01T09:00"), ts("2026-09-01T17:00"), 15000,
                            "Eylül kaydı eklendi", uid())
     new = s.manual_session(token, other, ts("2026-10-19T09:00"), ts("2026-10-19T17:00"), 12000,
@@ -274,8 +274,8 @@ def test_session_payment_and_audit_filters(system):
 
 def test_report_hides_idle_archived_staff_but_keeps_balances(system):
     s, c, token, eid = system
-    idle = s.add_employee(token, "Eski Personel", "573819", 10000)
-    owed = s.add_employee(token, "Alacaklı Eski", "684920", 10000)
+    idle = s.add_employee(token, "Eski Personel", "5738", 10000)
+    owed = s.add_employee(token, "Alacaklı Eski", "6849", 10000)
     s.manual_session(token, owed, ts("2026-09-10T09:00"), ts("2026-09-10T10:00"), 10000,
                      "Eylül kaydı eklendi", uid())
     for person in (idle, owed):

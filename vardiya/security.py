@@ -11,16 +11,28 @@ class AppError(Exception):
     """A safe, user-facing validation or authorization error."""
 
 
-def validate_pin(pin: str) -> None:
-    if not re.fullmatch(r"[0-9]{6}", pin):
-        raise AppError("PIN tam olarak 6 rakam olmalı.")
-    if len(set(pin)) == 1 or pin in ("123456", "654321", "012345", "543210"):
-        raise AppError("Tekrarlanan veya kolay tahmin edilen PIN kullanmayın.")
+PIN_LENGTH = 4
+
+
+def weak_pin(pin: str) -> bool:
+    """1111, 1234 / 4321 style runs, 1212 (abab) and 1122 (aabb)."""
+    digits = [int(c) for c in pin]
+    steps = {b - a for a, b in zip(digits, digits[1:])}
+    return (len(set(pin)) == 1 or steps in ({1}, {-1})
+            or (pin[0] == pin[2] and pin[1] == pin[3])
+            or (pin[0] == pin[1] and pin[2] == pin[3]))
+
+
+def validate_pin(pin: str, who="PIN") -> None:
+    if not re.fullmatch(r"[0-9]{%d}" % PIN_LENGTH, pin or ""):
+        raise AppError(f"{who} tam olarak {PIN_LENGTH} rakam olmalı.")
+    if weak_pin(pin):
+        raise AppError("1111, 1234, 1212 gibi tekrarlanan veya sıralı şifre kullanmayın.")
 
 
 def validate_password(password: str) -> None:
-    if len(password) < 12 or len(password) > 128:
-        raise AppError("Yönetici şifresi 12–128 karakter olmalı.")
+    """The admin password is a 4-digit code too (escalating lock compensates)."""
+    validate_pin(password, "Yönetici şifresi")
 
 
 def hash_secret(secret: str) -> str:

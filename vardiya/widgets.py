@@ -269,7 +269,7 @@ class PersonRing(QAbstractButton):
 
 class PinDots(QWidget):
     """Six small rings that fill as digits are typed (no font glyph needed)."""
-    def __init__(self, count=6, parent=None):
+    def __init__(self, count=4, parent=None):
         super().__init__(parent)
         self.count, self.filled, self.error = count, 0, False
         self.pop, self.shake = 1.0, 0.0

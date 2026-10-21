@@ -49,7 +49,7 @@ def test_kiosk_touch_pin_start_finish_and_cancel(qapp, system):
 def test_wrong_pin_stays_in_dialog(qapp, system):
     s, _, _, _ = system
     dialog = PinDialog(s, s.kiosk_employees()[0])
-    dialog.pin.setText("019283")
+    dialog.pin.setText("0192")
     dialog.confirm()
     assert dialog.result() != QDialog.DialogCode.Accepted
     assert dialog.error.text()
@@ -144,7 +144,7 @@ def test_locked_staff_ring_and_admin_status(qapp, system):
     from vardiya.security import AppError
     for _ in range(5):
         try:
-            s.attendance(eid, "192837", "start", None, str(uuid.uuid4()))
+            s.attendance(eid, "1928", "start", None, str(uuid.uuid4()))
         except AppError:
             pass
     window = MainWindow(s)
@@ -174,7 +174,7 @@ def test_admin_shows_turkish_money_actions_and_filters(qapp, system):
     assert "MB" in panel.backup_note.text()
     assert panel.tile_hours.value.text() == "1 saat"
     assert panel.timeline.rows and panel.timeline.rows[0][3]
-    new = s.add_employee(token, "Can Arslan", "573819", 12000)
+    new = s.add_employee(token, "Can Arslan", "5738", 12000)
     panel.refresh()
     assert panel.session_filter.employee.findData(new) > 0
     panel.reject()
@@ -264,7 +264,7 @@ def test_pin_dots_follow_typed_digits(qapp, system):
     assert dialog.dots.filled == 3
     dialog.press("Sil")
     assert dialog.dots.filled == 2
-    dialog.pin.setText("000000")
+    dialog.pin.setText("0009")
     dialog.confirm()
     assert dialog.dots.filled == 0 and dialog.dots.error
     dialog.reject()
@@ -332,3 +332,16 @@ def test_clock_and_greeting_visible_immediately(qapp, system):
     window.close()
     window.show()
     assert window.timer.isActive() and window.clock_timer.isActive()
+
+
+def test_pin_submits_itself_after_four_digits(qapp, system):
+    s, _, _, _ = system
+    dialog = PinDialog(s, s.kiosk_employees()[0])
+    dialog.show()
+    for digit in PIN:
+        dialog.press(digit)
+    assert dialog.dots.filled == 4
+    QTest.qWait(400)
+    assert dialog.result() == QDialog.DialogCode.Accepted and dialog.result_sid
+    dialog.confirm()                     # a late extra tap does nothing
+    assert len(s.sessions(s.login_admin(PASSWORD))) == 1

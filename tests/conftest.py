@@ -9,8 +9,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from vardiya.service import Service
 from vardiya.storage import Database
 
-PASSWORD = "Restoran!Guvenli2026"
-PIN = "482957"
+PASSWORD = "4826"
+PIN = "4829"
 
 
 class FakeClock:
