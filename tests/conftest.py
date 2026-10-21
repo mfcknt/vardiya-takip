@@ -78,7 +78,10 @@ def no_unexpected_modals():
     yield
     # Close every window a test left behind so its timers cannot fire later
     # against a database that the `system` fixture has already closed.
-    from PySide6.QtWidgets import QApplication
+    try:
+        from PySide6.QtWidgets import QApplication
+    except ImportError:          # core tests run without Qt installed
+        return
     app = QApplication.instance()
     if app is not None:
         for widget in app.topLevelWidgets():
