@@ -1,7 +1,14 @@
-"""Custom-painted Ó'is widgets: the Ó ring, backdrop watermark, timeline, heatmap."""
+"""Custom-painted Ó'is widgets: the Ó ring, backdrop watermark, timeline, heatmap.
+
+Touch feedback uses short QVariantAnimations (≤ 0.7 s) that repaint only the
+widget being touched; nothing runs while the screen is idle. Set the
+environment variable VARDIYA_ANIMATIONS=0 to switch them off on weak hardware.
+"""
+import math
+import os
 from pathlib import Path
 
-from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QEasingCurve, QPointF, QRectF, QSize, Qt, QTimer, QVariantAnimation, Signal
 from PySide6.QtGui import (
     QBrush, QColor, QFont, QFontDatabase, QIcon, QImage, QPainter, QPen, QPixmap,
 )
@@ -41,6 +48,38 @@ def font(family="Quicksand", size=14, weight=QFont.Weight.Normal):
     return f
 
 
+ANIMATIONS = os.environ.get("VARDIYA_ANIMATIONS", "1") != "0"
+
+
+def animate(owner, name, start, end, ms, setter, easing=QEasingCurve.Type.OutCubic, delay=0):
+    """Run one short value animation owned by `owner` (replaces a running one of the same name)."""
+    running = getattr(owner, "_anim_" + name, None)
+    if running is not None:
+        running.stop()
+    if not ANIMATIONS or ms <= 0:
+        setter(end)
+        return None
+    anim = QVariantAnimation(owner)
+    anim.setStartValue(float(start))
+    anim.setEndValue(float(end))
+    anim.setDuration(ms)
+    anim.setEasingCurve(easing)
+    anim.valueChanged.connect(lambda value: setter(float(value)))
+    setattr(owner, "_anim_" + name, anim)
+    if delay:
+        setter(float(start))
+        QTimer.singleShot(delay, owner, anim.start)
+    else:
+        anim.start()
+    return anim
+
+
+def with_alpha(hex_color, alpha):
+    c = QColor(hex_color)
+    c.setAlphaF(max(0.0, min(1.0, alpha)))
+    return c
+
+
 def color(key):
     return QColor(current()[key])
 
@@ -71,43 +110,51 @@ def app_icon():
 
 # --- the Ó ring ---------------------------------------------------------------
 
-def paint_ring(p, cx, cy, r, state, progress, letters, t=None, hover=False):
+def paint_ring(p, cx, cy, r, state, progress, letters, t=None, hover=0.0, reveal=1.0):
     """Draw one person as a thin 'Ó'.
 
     state: in (accent lit, ring fills with the shift), out (dim ring),
     forgotten (dashed honey ring, tilted accent), locked (rose ring).
+    hover: 0..1 strength of the soft touch disc; reveal: 0..1 draw-in progress
+    (the ring sweeps in first, the accent appears in the last 40%).
     """
+    hover, reveal = float(hover), max(0.0, min(1.0, float(reveal)))
     t = t or current()
     p.save()
     p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
     p.setBrush(Qt.BrushStyle.NoBrush)
     box = QRectF(cx - r, cy - r, 2 * r, 2 * r)
     s = r / 42.0
-    if hover:
+    if hover > 0.01:
         p.setPen(Qt.PenStyle.NoPen)
-        p.setBrush(QColor(t["surface"]))
-        p.drawEllipse(box.adjusted(-6 * s, -6 * s, 6 * s, 6 * s))
+        p.setBrush(with_alpha(t["surface2"], hover))
+        grow = 4 + 6 * hover
+        p.drawEllipse(box.adjusted(-grow * s, -grow * s, grow * s, grow * s))
         p.setBrush(Qt.BrushStyle.NoBrush)
+    accent_alpha = max(0.0, (reveal - 0.6) / 0.4)
 
-    def pen(key, width, style=Qt.PenStyle.SolidLine):
-        q = QPen(QColor(t[key]), width * s)
+    def pen(key, width, style=Qt.PenStyle.SolidLine, alpha=1.0):
+        q = QPen(with_alpha(t[key], alpha), width * s)
         q.setCapStyle(Qt.PenCapStyle.RoundCap)
         q.setStyle(style)
         return q
 
     def accent(key, tilted=False):
+        if accent_alpha <= 0:
+            return
         if tilted:
             a, b = QPointF(cx + 0.14 * r, cy - 1.05 * r), QPointF(cx + 0.29 * r, cy - 1.29 * r)
         else:
             a, b = QPointF(cx + 0.19 * r, cy - 1.14 * r), QPointF(cx + 0.43 * r, cy - 1.33 * r)
-        p.setPen(pen(key, 3.2))
-        p.drawLine(a, b)
+        lift = (1 - accent_alpha) * 0.12 * r       # the accent drops into place
+        p.setPen(pen(key, 3.2, alpha=accent_alpha))
+        p.drawLine(QPointF(a.x(), a.y() - lift), QPointF(b.x(), b.y() - lift))
 
     text_key = "muted"
     if state == "in":
         p.setPen(pen("ring_track", 2))
         p.drawEllipse(box)
-        sweep = max(0.02, min(1.0, progress))
+        sweep = max(0.02, min(1.0, progress)) * min(1.0, reveal / 0.8)
         p.setPen(pen("ring", 2.6))
         p.drawArc(box, 90 * 16, -int(360 * 16 * sweep))
         accent("ring")
@@ -124,9 +171,9 @@ def paint_ring(p, cx, cy, r, state, progress, letters, t=None, hover=False):
         p.drawEllipse(box)
         text_key = "lock"
     else:
-        p.setPen(pen("ring_idle", 1.5))
+        p.setPen(pen("ring_idle", 1.5, alpha=0.4 + 0.6 * reveal))
         p.drawEllipse(box)
-    p.setPen(QColor(t[text_key]))
+    p.setPen(with_alpha(t[text_key], 0.3 + 0.7 * reveal))
     size = 24 * s if r > 20 else max(24 * s, r * 0.95)   # tiny avatars stay legible
     p.setFont(font("Jost", size, QFont.Weight.Light if r > 20 else QFont.Weight.Normal))
     p.drawText(box.adjusted(-r, 0, r, 0), Qt.AlignmentFlag.AlignCenter, letters)
@@ -150,6 +197,35 @@ class PersonRing(QAbstractButton):
         self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.setFixedSize(160, 186)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
+        self.press_level = 0.0    # 0 = rest, 1 = fully pressed
+        self.hover_level = 0.0
+        self.pressed.connect(self._on_press)
+        self.released.connect(self._on_release)
+
+    def _set_press(self, value):
+        self.press_level = value
+        self.update()
+
+    def _set_hover(self, value):
+        self.hover_level = value
+        self.update()
+
+    def _on_press(self):
+        animate(self, "press", self.press_level, 1.0, 90, self._set_press)
+        animate(self, "hover", self.hover_level, 1.0, 90, self._set_hover)
+
+    def _on_release(self):
+        # spring back slightly past rest, like a soft button
+        animate(self, "press", self.press_level, 0.0, 280, self._set_press, QEasingCurve.Type.OutBack)
+        animate(self, "hover", self.hover_level, 0.0 if not self.underMouse() else 0.5, 320, self._set_hover)
+
+    def enterEvent(self, event):
+        animate(self, "hover", self.hover_level, 0.5, 140, self._set_hover)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        animate(self, "hover", self.hover_level, 0.0, 200, self._set_hover)
+        super().leaveEvent(event)
 
     def set_person(self, state, progress, letters, title, subtitle, description):
         self.state, self.progress, self.letters = state, progress, letters
@@ -166,8 +242,14 @@ class PersonRing(QAbstractButton):
         t = current()
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        hover = self.underMouse() or self.isDown()
-        paint_ring(p, self.width() / 2, 80, 46, self.state, self.progress, self.letters, t, hover)
+        scale = 1.0 - 0.07 * self.press_level
+        if scale != 1.0:
+            p.translate(self.width() / 2, 80)
+            p.scale(scale, scale)
+            p.translate(-self.width() / 2, -80)
+        paint_ring(p, self.width() / 2, 80, 46, self.state, self.progress, self.letters, t,
+                   self.hover_level)
+        p.resetTransform()
         name_key = {"in": "text", "forgotten": "warn_text", "locked": "lock"}.get(self.state, "muted")
         p.setPen(QColor(t[name_key] if self.state != "out" else t["text"]))
         p.setFont(font("Quicksand", 16, QFont.Weight.Medium))
@@ -190,10 +272,24 @@ class PinDots(QWidget):
     def __init__(self, count=6, parent=None):
         super().__init__(parent)
         self.count, self.filled, self.error = count, 0, False
-        self.setFixedSize(count * 34, 34)
+        self.pop, self.shake = 1.0, 0.0
+        self.setFixedSize(count * 34 + 24, 34)
+
+    def _set_pop(self, value):
+        self.pop = value
+        self.update()
+
+    def _set_shake(self, value):
+        self.shake = value
+        self.update()
 
     def set_filled(self, n, error=False):
+        grew = n > self.filled
         self.filled, self.error = n, error
+        if grew:
+            animate(self, "pop", 0.0, 1.0, 160, self._set_pop, QEasingCurve.Type.OutBack)
+        if error:
+            animate(self, "shake", 0.0, 1.0, 360, self._set_shake, QEasingCurve.Type.Linear)
         self.update()
 
     def paintEvent(self, _event):
@@ -201,12 +297,16 @@ class PinDots(QWidget):
         p = QPainter(self)
         p.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         key = "lock" if self.error else "ring"
+        offset = 0.0
+        if self.error and 0.0 < self.shake < 1.0:
+            offset = math.sin(self.shake * math.pi * 6) * (1 - self.shake) * 9
         for i in range(self.count):
-            center = QPointF(17 + i * 34, 17)
+            center = QPointF(29 + i * 34 + offset, 17)
             if i < self.filled:
+                radius = 7 * (self.pop if i == self.filled - 1 else 1.0)
                 p.setPen(Qt.PenStyle.NoPen)
                 p.setBrush(QColor(t[key]))
-                p.drawEllipse(center, 7, 7)
+                p.drawEllipse(center, max(0.5, radius), max(0.5, radius))
             else:
                 p.setBrush(Qt.BrushStyle.NoBrush)
                 p.setPen(QPen(QColor(t["ring_idle"] if not self.error else t["lock"]), 1.5))
@@ -220,6 +320,7 @@ class RingWidget(QWidget):
         super().__init__(parent)
         self.radius = radius
         self.state, self.progress, self.letters = "out", 0.0, ""
+        self.reveal = 1.0
         size = int(radius * 2 + radius * 0.9)
         self.setFixedSize(int(radius * 2.6), size)
 
@@ -227,10 +328,18 @@ class RingWidget(QWidget):
         self.state, self.progress, self.letters = state, progress, letters
         self.update()
 
+    def _set_reveal(self, value):
+        self.reveal = value
+        self.update()
+
+    def draw_in(self, ms=700, delay=80):
+        """Sweep the ring in, then drop the accent into place."""
+        animate(self, "reveal", 0.0, 1.0, ms, self._set_reveal, QEasingCurve.Type.OutCubic, delay)
+
     def paintEvent(self, _event):
         p = QPainter(self)
         paint_ring(p, self.width() / 2, self.height() - self.radius - 4, self.radius,
-                   self.state, self.progress, self.letters)
+                   self.state, self.progress, self.letters, reveal=self.reveal)
         p.end()
 
 
@@ -434,6 +543,7 @@ class WelcomeDialog(QDialog):
         row.setSpacing(28)
         self.ring = RingWidget(62)
         self.ring.set_ring(state, 1.0 if state == "in" else 0.0, letters)
+        self.ring.draw_in()
         row.addWidget(self.ring)
         texts = QVBoxLayout()
         texts.addStretch()
@@ -448,7 +558,12 @@ class WelcomeDialog(QDialog):
         texts.addStretch()
         row.addLayout(texts, 1)
         self.setMinimumWidth(620)
+        self.setWindowOpacity(0.0 if ANIMATIONS else 1.0)
         QTimer.singleShot(timeout_ms, self, self.accept)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        animate(self, "fade", 0.0, 1.0, 180, self.setWindowOpacity)
 
     def mousePressEvent(self, _event):
         self.accept()

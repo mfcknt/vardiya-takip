@@ -263,3 +263,47 @@ def test_pin_dots_follow_typed_digits(qapp, system):
     dialog.confirm()
     assert dialog.dots.filled == 0 and dialog.dots.error
     dialog.reject()
+
+
+def test_touch_animations_finish_and_leave_nothing_running(qapp, system):
+    from PySide6.QtCore import QAbstractAnimation
+    from vardiya.widgets import PinDots, RingWidget
+    s, _, _, _ = system
+    window = MainWindow(s)
+    window.show()
+    qapp.processEvents()
+    tile = ring(window)
+    tile.pressed.emit()
+    QTest.qWait(150)
+    assert tile.press_level > 0.8           # squeezed while the finger is down
+    tile.released.emit()
+    QTest.qWait(450)
+    assert abs(tile.press_level) < 0.01     # sprang back to rest
+    dots = PinDots()
+    dots.set_filled(1)
+    QTest.qWait(250)
+    assert dots.pop == 1.0
+    dots.set_filled(0, error=True)
+    QTest.qWait(450)
+    assert dots.shake == 1.0
+    big = RingWidget(60)
+    big.set_ring("in", 1.0, "ca")
+    big.draw_in(ms=200, delay=0)
+    QTest.qWait(350)
+    assert big.reveal == 1.0
+    for owner in (tile, dots, big):
+        for name in ("press", "hover", "pop", "shake", "reveal"):
+            anim = getattr(owner, "_anim_" + name, None)
+            assert anim is None or anim.state() == QAbstractAnimation.State.Stopped
+    window.close()
+
+
+def test_animations_can_be_switched_off(qapp, monkeypatch):
+    from vardiya import widgets
+    monkeypatch.setattr(widgets, "ANIMATIONS", False)
+    dots = widgets.PinDots()
+    dots.set_filled(2)
+    assert dots.pop == 1.0                  # applied instantly, no timer created
+    big = widgets.RingWidget(60)
+    big.draw_in()
+    assert big.reveal == 1.0 and getattr(big, "_anim_reveal", None) is None
