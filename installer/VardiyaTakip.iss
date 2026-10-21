@@ -1,4 +1,4 @@
-; Windows installer for Vardiya Takip (Inno Setup 6).
+﻿; Windows installer for Vardiya Takip (Inno Setup 6).
 ; Per-user install: no administrator rights needed. Data is never stored in the
 ; program folder (it lives in %LOCALAPPDATA%\VardiyaTakip), so uninstalling or
 ; upgrading never touches the records.
