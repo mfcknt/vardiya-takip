@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "vardiya-takip"
-version = "0.1.0"
+version = "0.2.0"
 description = "Çevrimdışı restoran ve kafe personel takibi"
 requires-python = ">=3.12"
 dependencies = ["PySide6==6.10.2", "openpyxl==3.1.5", "tzdata==2025.3"]

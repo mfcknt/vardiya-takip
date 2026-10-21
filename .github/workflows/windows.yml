@@ -82,6 +82,42 @@ jobs:
           if ($LASTEXITCODE -ne 0) { Fail "Paketlenmiş bütünlük denetimi başarısız ($LASTEXITCODE)" $out }
           Write-Host "::notice title=Paket::VardiyaBakim.exe gerçek bir veritabanını doğruladı: $out"
           exit 0
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) {
+            choco install innosetup -y --no-progress | Out-Null
+          }
+          if (-not (Test-Path $iscc)) { Write-Host "::error title=Kurulum::Inno Setup bulunamadı"; exit 1 }
+          $version = (Select-String -Path pyproject.toml -Pattern '^version = "(.+)"').Matches[0].Groups[1].Value
+          $out = & $iscc "/DAppVersion=$version" installer\VardiyaTakip.iss 2>&1
+          if ($LASTEXITCODE -ne 0) {
+            $text = (($out | Select-Object -Last 15) -join " / ") -replace "%", "%25"
+            Write-Host "::error title=Kurulum::$text"; exit 1
+          }
+          Write-Host "::notice title=Kurulum::VardiyaTakip-Kurulum.exe $version hazır"
+          exit 0
+      - name: Smoke test installer
+        shell: pwsh
+        run: |
+          $setup = Get-Item dist\VardiyaTakip-Kurulum.exe
+          $p = Start-Process $setup.FullName -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/CURRENTUSER" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { Write-Host "::error title=Kurulum::Sessiz kurulum başarısız ($($p.ExitCode))"; exit 1 }
+          $app = Join-Path $env:LOCALAPPDATA "Programs\VardiyaTakip"
+          foreach ($f in "VardiyaTakip.exe", "VardiyaBakim.exe", "_internal\vardiya\assets\logo.png", "unins000.exe") {
+            if (-not (Test-Path (Join-Path $app $f))) { Write-Host "::error title=Kurulum::Eksik: $f"; exit 1 }
+          }
+          $data = Join-Path $env:RUNNER_TEMP "vardiya-installed"
+          & .\.venv\Scripts\python.exe scripts\make_sample_db.py $data | Out-Null
+          $out = & (Join-Path $app "VardiyaBakim.exe") --data-dir $data --check 2>&1
+          if ($LASTEXITCODE -ne 0) { Write-Host "::error title=Kurulum::Kurulu bakım aracı: $out"; exit 1 }
+          $u = Start-Process (Join-Path $app "unins000.exe") -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART" -Wait -PassThru
+          Start-Sleep -Seconds 3
+          if (Test-Path (Join-Path $app "VardiyaTakip.exe")) { Write-Host "::error title=Kurulum::Kaldırma dosyaları silmedi"; exit 1 }
+          if (-not (Test-Path (Join-Path $data "vardiya.sqlite3"))) { Write-Host "::error title=Kurulum::Kaldırma veriyi sildi"; exit 1 }
+          Write-Host "::notice title=Kurulum::Sessiz kurulum, kurulu .exe ve kaldırma doğrulandı; veri korundu"
+          exit 0
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
@@ -101,11 +137,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          notes="Windows 10/11 x64 · Python gerekmez.
-          1. VardiyaTakip-Windows-x64.zip dosyasını indirip açın.
-          2. İçindeki VardiyaTakip klasörünün tamamını masaüstüne kopyalayın (_internal klasörü yanında kalmalı).
-          3. VardiyaTakip.exe dosyasını çift tıklayın. 'Windows bilgisayarınızı korudu' uyarısında Ek bilgi → Yine de çalıştır.
+          notes="Windows 10/11 x64 · Python gerekmez · yönetici izni gerekmez.
+
+          Kurulum: VardiyaTakip-Kurulum.exe dosyasını indirip çift tıklayın, İleri → Kur.
+          'Windows bilgisayarınızı korudu' uyarısında Ek bilgi → Yine de çalıştır'ı seçin (uygulama imzalı değil).
+          Yeni sürüm eski sürümün üzerine kurulur; kayıtlar (%LOCALAPPDATA%\\VardiyaTakip) korunur.
+
+          Kurulumsuz kullanım: VardiyaTakip-Windows-x64.zip → sağ tık → Tümünü ayıkla → ayıklanan klasördeki VardiyaTakip.exe.
           Sürüm: ${GITHUB_SHA::7}"
           gh release delete son-surum --yes --cleanup-tag || true
-          gh release create son-surum dist/VardiyaTakip-Windows-x64.zip \
+          gh release create son-surum dist/VardiyaTakip-Kurulum.exe dist/VardiyaTakip-Windows-x64.zip \
             --title "Vardiya Takip · Windows son sürüm" --notes "$notes" --target "$GITHUB_SHA" --latest

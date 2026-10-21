@@ -17,10 +17,14 @@ Mola ve planlanan vardiya özellikleri yoktur.
 
 ## Windows’ta başlatma (Python gerekmez)
 
-1. https://github.com/mfcknt/vardiya-takip/releases/latest adresinden **VardiyaTakip-Windows-x64.zip** dosyasını indirin.
-2. ZIP’i açın, içindeki **VardiyaTakip** klasörünün tamamını masaüstüne kopyalayın.
-3. **VardiyaTakip.exe**’yi çift tıklayın. İlk açılışta çıkan “Windows bilgisayarınızı korudu” uyarısında
-   **Ek bilgi → Yine de çalıştır**’ı seçin (uygulama kod imzalı değildir).
+1. https://github.com/mfcknt/vardiya-takip/releases/latest adresinden **VardiyaTakip-Kurulum.exe**’yi indirin.
+2. Çift tıklayın, **İleri → Kur**. Yönetici izni gerekmez; Başlat menüsüne ve masaüstüne kısayol eklenir.
+   “Windows bilgisayarınızı korudu” uyarısında **Ek bilgi → Yine de çalıştır**’ı seçin (uygulama kod imzalı değildir).
+3. Güncellemek için yeni kurulum dosyasını aynı şekilde çalıştırın; kayıtlar korunur.
+   Kaldırma: Ayarlar → Uygulamalar → Vardiya Takip → Kaldır (veriler `%LOCALAPPDATA%\VardiyaTakip` içinde kalır).
+
+Kurulumsuz kullanım için aynı sayfadaki ZIP’e sağ tıklayıp **Tümünü ayıkla** deyin ve ayıklanan klasördeki
+`VardiyaTakip.exe`’yi açın. ZIP’in içinden doğrudan çalıştırmak “Failed to load Python DLL” hatası verir.
 
 Not: Depo sayfasındaki **Code → Download ZIP** yalnızca kaynak kodu indirir; `.exe` içermez.
 
