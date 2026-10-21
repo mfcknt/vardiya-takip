@@ -20,7 +20,7 @@ from . import periods
 from . import theme as th
 from .backup import automatic_backup, backup_usage, create_backup, restore_database
 from .formatting import cents, tl
-from .reports import build_report, duration, export_audit, export_report
+from .reports import build_report, export_audit, export_report
 from .security import PIN_LENGTH, AppError
 from .storage import inspect_database
 from .widgets import (
@@ -141,8 +141,22 @@ ACTION_NAMES = {
 AUDIT_SCREEN_LIMIT = 1000
 
 
+# Audit actors/entities are stored as "admin", "staff:5", "session:32"...; screens show words.
+AUDIT_NAMES = {"admin": "Yönetici", "system": "Sistem", "clock": "Saat", "theme": "Tema",
+               "day_start_hour": "İş günü saati", "session": "Kayıt", "payment": "Ödeme"}
+
+
 def action_name(code):
     return ACTION_NAMES.get(code, code)
+
+
+def audit_party(value, names):
+    """"staff:5"/"employee:5" → the person's name, "session:32" → "Kayıt 32", "system" → "Sistem"."""
+    kind, _, number = value.partition(":")
+    if kind in ("staff", "employee") and number.isdigit():
+        return names.get(int(number), f"Personel {number}")
+    word = AUDIT_NAMES.get(kind, kind)
+    return f"{word} {number}" if number else word
 
 
 def lock_seconds(service, locked_until):
@@ -378,7 +392,7 @@ class PinDialog(KeypadInput, QDialog):
         name = label(employee["name"], "h2")
         names.addWidget(name)
         if self.forgotten:
-            hint = "giriş " + service.display_time(employee["start_at"])[:16]
+            hint = "giriş " + service.display_time(employee["start_at"], seconds=False)
         elif employee["session_id"]:
             local = datetime.fromtimestamp(employee["start_at"], service.zone)
             hint = f"{local:%H:%M}'dan beri içeride"
@@ -957,6 +971,7 @@ class AdminDialog(QDialog):
         self.toolbar(box, [("Personel ekle", self.add_employee), ("Seçileni düzenle", self.edit_employee),
                            ("Kilidi kaldır", self.unlock_employee)])
         self.people_table = make_table(["No", "Ad Soyad", "Saatlik TL", "Durum"])
+        self.people_table.cellDoubleClicked.connect(lambda *_: self.edit_employee())
         box.addWidget(self.people_table)
 
     def sessions_tab(self):
@@ -970,6 +985,7 @@ class AdminDialog(QDialog):
         self.toolbar(box, [("Eksik kayıt ekle", self.add_session), ("Seçileni düzelt", self.edit_session)])
         self.session_table = make_table(["Kayıt", "Personel", "Giriş", "Çıkış", "Saatlik TL", "Durum",
                                          "İnceleme"])
+        self.session_table.cellDoubleClicked.connect(lambda *_: self.edit_session())
         box.addWidget(self.session_table)
 
     def reports_tab(self):
@@ -1057,8 +1073,8 @@ class AdminDialog(QDialog):
         f = self.session_filter.values()
         self.session_rows = self.service.sessions(self.token, f["eid"], f["since"], f["until"],
                                                   self.session_filter.review_only())
-        fill_table(self.session_table, [[s["id"], s["name"], self.service.display_time(s["start_at"]),
-                                        self.service.display_time(s["end_at"]), tl(s["rate_cents"]),
+        fill_table(self.session_table, [[s["id"], s["name"], self.service.display_time(s["start_at"], False),
+                                        self.service.display_time(s["end_at"], False), tl(s["rate_cents"]),
                                         "İptal" if s["voided"] else "Açık" if s["end_at"] is None else "Kapalı",
                                         "" if s["voided"] else s["review"]]
                                        for s in self.session_rows],
@@ -1071,13 +1087,15 @@ class AdminDialog(QDialog):
         self.review_note.setVisible(bool(pending))
         f = self.payment_filter.values()
         self.payment_rows = self.service.payments(self.token, f["eid"], f["since"], f["until"])
-        fill_table(self.payment_table, [[p["id"], p["name"], self.service.display_time(p["paid_at"]),
+        fill_table(self.payment_table, [[p["id"], p["name"], self.service.display_time(p["paid_at"], False),
                                         p["kind"], tl(p["amount_cents"]), p["note"],
                                         "İptal" if p["voided"] else "Geçerli"] for p in self.payment_rows],
                    [(th.initials(p["name"]), "out") for p in self.payment_rows])
         self.audit = self.service.audit_rows(self.token, AUDIT_SCREEN_LIMIT)
-        fill_table(self.audit_table, [[a["id"], self.service.display_time(a["at"]), a["actor"],
-                                      action_name(a["action"]), a["entity"], a["reason"]] for a in self.audit])
+        names = {e["id"]: e["name"] for e in self.people}
+        fill_table(self.audit_table, [[a["id"], self.service.display_time(a["at"], False),
+                                      audit_party(a["actor"], names), action_name(a["action"]),
+                                      audit_party(a["entity"], names), a["reason"]] for a in self.audit])
         self.audit_note.setText(f"Ekranda son {AUDIT_SCREEN_LIMIT} işlem gösterilir; "
                                 "tamamı için “Geçmişi CSV indir”.")
         alert, notice = self.service.clock_status()
@@ -1223,7 +1241,7 @@ class AdminDialog(QDialog):
     @guarded
     def calculate(self):
         self.report = self.build_report()
-        fill_table(self.report_table, [[r["name"], duration(r["seconds"]), tl(r["cents"]),
+        fill_table(self.report_table, [[r["name"], th.hours_text(r["seconds"]), tl(r["cents"]),
                                        tl(r["open_cents"]), tl(r["paid_cents"]),
                                        tl(r["carry_cents"]), tl(r["balance_cents"]),
                                        f"{r['review_count']} kayıt" if r["review_count"] else ""]
@@ -1573,18 +1591,17 @@ class MainWindow(QMainWindow):
         self.update_clock()
         people = getattr(self, "people", [])
         now = self.service.clock.wall()
-        long_open = any(e["start_at"] is not None and now - e["start_at"] > 86400 for e in people)
         lines = []
         if alert:
             # Staff keep working; records are flagged for the admin.
             lines.append(alert + " Giriş/çıkışlar yönetici incelemesi için işaretleniyor.")
-        elif notice:
-            lines.append("Yönetici: " + notice)
-        forgotten = sum(1 for e in people if e["session_id"] and self.service.past_day_boundary(e["start_at"]))
-        if forgotten:
-            lines.append(f"Çıkışı unutulan {forgotten} kayıt var. Yönetici gerçek çıkış saatini girmeli.")
-        if long_open:
-            lines.append("24 saati aşan açık kayıt var. Yönetici kontrol etmeli.")
+        # Anything only the admin can fix is a short count; details live in the admin panel.
+        # Forgotten exits and open records older than 24 h, each person counted once.
+        stuck = sum(1 for e in people if e["session_id"] and (self.service.past_day_boundary(e["start_at"])
+                                                               or now - e["start_at"] > 86400))
+        notes = stuck + bool(notice and not alert)
+        if notes:
+            lines.append(f"Yönetici için {notes} not var.")
         message = "\n".join(lines)
         self.warning.setText(message)
         self.warning.setVisible(bool(message))

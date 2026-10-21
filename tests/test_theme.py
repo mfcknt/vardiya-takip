@@ -21,8 +21,9 @@ def test_short_names_disambiguate_same_first_name():
 def test_time_texts():
     assert th.clock_text(4 * 3600 + 12 * 60 + 59) == "4:12"
     assert th.clock_text(-5) == "0:00"
-    assert th.hours_text(6 * 3600) == "6 saat"
-    assert th.hours_text(7 * 3600 + 30 * 60) == "7s 30dk"
+    assert th.hours_text(6 * 3600) == "6 sa"
+    assert th.hours_text(7 * 3600 + 30 * 60) == "7 sa 30 dk"
+    assert th.hours_text(92 * 3600 + 30 * 60 + 59) == "92 sa 30 dk"
     assert th.hours_text(45 * 60) == "45 dk"
 
 

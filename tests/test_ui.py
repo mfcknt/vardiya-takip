@@ -66,7 +66,7 @@ def test_welcome_screen_after_start_and_finish(qapp, system):
     dialog.confirm()
     summary = s.staff_summary(eid, dialog.result_sid)
     assert summary["session_seconds"] == 0
-    welcome = WelcomeDialog("ay", "in", "hoş geldin, ayşe", "giriş 12:00", "şapka yandı", window, timeout_ms=50)
+    welcome = WelcomeDialog("ay", "in", "hoş geldin, ayşe", "giriş 12:00", "", window, timeout_ms=50)
     welcome.show()
     QTest.qWait(200)
     assert welcome.result() == QDialog.DialogCode.Accepted
@@ -172,8 +172,11 @@ def test_admin_shows_turkish_money_actions_and_filters(qapp, system):
     assert not panel.people_table.item(0, 1).icon().isNull()
     assert panel.session_table.rowCount() == 1  # default: this month
     assert panel.audit_table.item(0, 3).text() == "Kayıt eklendi"
+    assert panel.audit_table.item(0, 2).text() == "Yönetici"
+    assert panel.audit_table.item(0, 4).text() == f"Kayıt {panel.session_rows[0]['id']}"
+    assert len(panel.session_table.item(0, 2).text()) == len("20.10.2026 11:00")  # no seconds on screen
     assert "MB" in panel.backup_note.text()
-    assert panel.tile_hours.value.text() == "1 saat"
+    assert panel.tile_hours.value.text() == "1 sa"
     assert panel.timeline.rows and panel.timeline.rows[0][3]
     new = s.add_employee(token, "Can Arslan", "5738", 12000)
     panel.refresh()
@@ -192,7 +195,7 @@ def test_forgotten_exit_ring_pin_warning_and_report(qapp, system):
     c.advance(ts("2026-10-21T05:10") - c.now)
     window.heartbeat()
     assert ring(window).state == "forgotten" and "Çıkış unutuldu" in ring(window).text()
-    assert "Çıkışı unutulan 1 kayıt" in window.warning.text()
+    assert window.warning.text() == "Yönetici için 1 not var."
     dialog = PinDialog(s, s.kiosk_employees()[0], window)
     assert dialog.forgotten
     assert any("önceki iş gününden" in w.text() for w in dialog.findChildren(QLabel))
@@ -526,3 +529,30 @@ def test_closing_admin_with_pending_filter_does_not_refresh(qapp, system):
     panel.reject()                                    # closes before it fires
     assert not panel.session_filter._apply.isActive()
     QTest.qWait(400)                                  # no "oturum kapandı" box, no crash
+
+
+def test_double_click_opens_editor_and_audit_shows_names(qapp, system, monkeypatch):
+    s, c, token, eid = system
+    s.attendance(eid, PIN, "start", None, str(uuid.uuid4()))
+    opened = []
+    monkeypatch.setattr(EmployeeDialog, "exec", lambda self: opened.append("employee") or 0)
+    monkeypatch.setattr(SessionDialog, "exec", lambda self: opened.append("session") or 0)
+    panel = AdminDialog(s, token)
+    for table in (panel.people_table, panel.session_table):
+        table.setCurrentCell(0, 1)
+        table.cellDoubleClicked.emit(0, 1)
+    assert opened == ["employee", "session"]
+    start = next(r for r in range(panel.audit_table.rowCount()) if panel.audit_table.item(r, 3).text() == "İşe başladı")
+    assert panel.audit_table.item(start, 2).text() == "Ayşe Yılmaz"
+    panel.reject()
+
+
+def test_audit_party_words():
+    from vardiya.ui import audit_party
+    names = {5: "Can Arslan"}
+    assert audit_party("staff:5", names) == "Can Arslan"
+    assert audit_party("employee:9", names) == "Personel 9"
+    assert audit_party("payment:3", names) == "Ödeme 3"
+    assert audit_party("system", names) == "Sistem"
+    assert audit_party("day_start_hour", names) == "İş günü saati"
+    assert audit_party("unknown", names) == "unknown"

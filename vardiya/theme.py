@@ -101,10 +101,11 @@ def clock_text(seconds):
 
 
 def hours_text(seconds):
+    """"92 sa 30 dk", "8 sa", "45 dk" (no seconds; "s" would read as saniye)."""
     hours, minutes = divmod(max(0, int(seconds)) // 60, 60)
     if hours and minutes:
-        return f"{hours}s {minutes}dk"
-    return f"{hours} saat" if hours else f"{minutes} dk"
+        return f"{hours} sa {minutes} dk"
+    return f"{hours} sa" if hours else f"{minutes} dk"
 
 
 def greeting(local: datetime, business_day):

@@ -613,7 +613,9 @@ class Service:
         return [dict(r) for r in self.db.conn.execute(
             "SELECT * FROM audit ORDER BY id DESC LIMIT ?", (-1 if limit is None else int(limit),))]
 
-    def display_time(self, timestamp):
+    def display_time(self, timestamp, seconds=True):
+        """Local time text; exports keep seconds, screens pass seconds=False."""
         if timestamp is None:
             return "Açık"
-        return datetime.fromtimestamp(timestamp, self.zone).strftime("%d.%m.%Y %H:%M:%S")
+        return datetime.fromtimestamp(timestamp, self.zone).strftime(
+            "%d.%m.%Y %H:%M:%S" if seconds else "%d.%m.%Y %H:%M")

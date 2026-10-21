@@ -129,8 +129,8 @@ def main(out):
             pin.press(digit)
         grab(pin, out / f"pin-{theme}.png")
         pin.reject()
-        welcome = WelcomeDialog("ca", "in", "hoş geldin, can", "giriş 21:42 · bu ay 92s 30dk",
-                                "şapka yandı, iyi servisler", window, timeout_ms=60_000)
+        welcome = WelcomeDialog("ca", "in", "hoş geldin, can", "giriş 21:42 · bu ay 92 sa 30 dk",
+                                "", window, timeout_ms=60_000)
         grab(welcome, out / f"welcome-{theme}.png")
         welcome.reject()
         token = service.login_admin(PASSWORD)

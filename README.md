@@ -85,9 +85,10 @@ Aylık toplam günlük tutarların toplamıdır.
 
 Açık kayıt tutarı yalnızca geçici tahmindir; hak ediş bakiyesine dahil edilmez.
 **Unutulan çıkış:** İş günü sınırını (05.00) geçip hâlâ açık olan kayıt “çıkış yapılmamış” olarak
-incelemeye işaretlenir; personel kartı turuncuya döner ve ana ekranda uyarı çıkar. Personel ertesi gün
+incelemeye işaretlenir; personel kartı turuncuya döner ve ana ekranda kısa bir “yönetici için N not var”
+uyarısı çıkar (ayrıntı yalnızca yönetici panelinde). Personel ertesi gün
 kartına basarsa PIN ekranı bunu söyler; kaydı kapatabilir ve hemen yeni giriş yapabilir. Kapanan kayıt
-işaretli kalır; yönetici gerçek çıkış saatini **Seçileni düzelt** ile girene kadar raporlarda
+işaretli kalır; yönetici gerçek çıkış saatini **Seçileni düzelt** ile (ya da satıra çift tıklayarak) girene kadar raporlarda
 “İnceleme” sütununda görünür. Uygulama çıkış saatini kendiliğinden uydurmaz.
 24 saati aşan açık kaydı personel kapatamaz; yönetici kontrol edip düzeltir.
 Yönetici eliyle oluşturulan/düzeltilen tek kayıt en fazla 7 gün olabilir.
