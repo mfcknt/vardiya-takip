@@ -6,19 +6,20 @@ from datetime import date, datetime, timedelta
 from functools import wraps
 from pathlib import Path
 
-from PySide6.QtCore import QDate, QDateTime, QEvent, QRegularExpression, QSize, Qt, QTime, QTimer
+from PySide6.QtCore import QDate, QDateTime, QEvent, QRect, QRegularExpression, QSize, Qt, QTime, QTimer
 from PySide6.QtGui import QColor, QIcon, QPalette, QRegularExpressionValidator
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QDateEdit, QDateTimeEdit, QDialog,
     QDialogButtonBox, QFileDialog, QFormLayout, QFrame, QGridLayout, QHBoxLayout,
-    QHeaderView, QLabel, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPushButton,
-    QScrollArea, QScroller, QStackedWidget, QTableWidget, QTableWidgetItem,
+    QHeaderView, QLabel, QLayout, QLineEdit, QListWidget, QMainWindow, QMessageBox, QPushButton,
+    QScrollArea, QScroller, QSizePolicy, QStackedWidget, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QWidget,
 )
 
 from . import periods
 from . import theme as th
-from .backup import automatic_backup, backup_usage, create_backup, restore_database
+from .background import Maintenance
+from .backup import backup_usage, create_backup, restore_database
 from .formatting import cents, tl
 from .receipts import receipt_html
 from .reports import build_report, export_audit, export_report
@@ -250,6 +251,128 @@ class FormDialog(QDialog):
         self.buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("Vazgeç")
         self.buttons.rejected.connect(self.reject)
         self.layout.addWidget(self.buttons)
+
+
+class FlowLayout(QLayout):
+    """Left-to-right row that wraps onto new lines when narrow (small laptops at 1024 px).
+
+    A `stretch=True` item (FlowLayout.addWidget(w, stretch=True)) is pushed to the right
+    end of its line when there is room, like a QHBoxLayout stretch before it.
+    """
+    def __init__(self, parent=None, spacing=10):
+        super().__init__(parent)
+        self.setContentsMargins(0, 0, 0, 0)
+        self._items, self._right, self._gap = [], set(), spacing
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def addWidget(self, widget, right=False):
+        super().addWidget(widget)
+        if right:
+            self._right.add(widget)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        return self._items[index] if 0 <= index < len(self._items) else None
+
+    def takeAt(self, index):
+        return self._items.pop(index) if 0 <= index < len(self._items) else None
+
+    def expandingDirections(self):
+        return Qt.Orientation(0)
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._arrange(QRect(0, 0, width, 0), apply=False)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._arrange(rect, apply=True)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        size = QSize()
+        for item in self._items:
+            size = size.expandedTo(item.minimumSize())
+        return size
+
+    def _arrange(self, rect, apply):
+        items = [i for i in self._items if i.widget() is None or not i.widget().isHidden()]
+        lines, line, x = [], [], 0
+        for item in items:
+            width = item.sizeHint().width()
+            if line and x + width > rect.width():
+                lines.append(line)
+                line, x = [], 0
+            line.append(item)
+            x += width + self._gap
+        if line:
+            lines.append(line)
+        y = rect.y()
+        for line in lines:
+            height = max(item.sizeHint().height() for item in line)
+            free = rect.width() - sum(item.sizeHint().width() for item in line) - self._gap * (len(line) - 1)
+            x, pushed = rect.x(), False
+            for item in line:
+                if not pushed and item.widget() in self._right and free > 0:
+                    x, pushed = x + free, True
+                hint = item.sizeHint()
+                if apply:
+                    item.setGeometry(QRect(x, y + (height - hint.height()) // 2, hint.width(), hint.height()))
+                x += hint.width() + self._gap
+            y += height + self._gap
+        return max(0, y - rect.y() - self._gap)
+
+
+class TileGrid(QWidget):
+    """Stat tiles in one row, or two rows of two when the page is too narrow for one."""
+    GAP = 12
+
+    def __init__(self, tiles, parent=None):
+        super().__init__(parent)
+        self.tiles, self.columns = tiles, 0
+        self.grid = QGridLayout(self)
+        self.grid.setContentsMargins(0, 0, 0, 0)
+        self.grid.setSpacing(self.GAP)
+        # Our minimumSizeHint (two columns) decides; the 4-column layout must not force its width.
+        self.grid.setSizeConstraint(QLayout.SizeConstraint.SetNoConstraint)
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        self._place(len(tiles))
+
+    def _place(self, columns):
+        if columns == self.columns:
+            return
+        self.columns = columns
+        for tile in self.tiles:
+            self.grid.removeWidget(tile)
+        for index, tile in enumerate(self.tiles):
+            self.grid.addWidget(tile, index // columns, index % columns)
+        for column in range(len(self.tiles)):
+            self.grid.setColumnStretch(column, 1 if column < columns else 0)
+        self.updateGeometry()
+
+    def one_row_width(self):
+        return sum(t.minimumSizeHint().width() for t in self.tiles) + self.GAP * (len(self.tiles) - 1)
+
+    def resizeEvent(self, event):
+        self._place(len(self.tiles) if event.size().width() >= self.one_row_width() else 2)
+        super().resizeEvent(event)
+
+    def minimumSizeHint(self):
+        widths = [t.minimumSizeHint().width() for t in self.tiles]
+        pairs = max(sum(widths[i:i + 2]) for i in range(0, len(widths), 2)) + self.GAP
+        return QSize(pairs, self.grid.minimumSize().height())
+
+    def sizeHint(self):
+        return QSize(self.one_row_width(), self.grid.sizeHint().height())
+
 
 
 def fit_to_screen(widget, width, height, center=True):
@@ -879,19 +1002,16 @@ class FilterBar(QWidget):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(10)
-        chips = QHBoxLayout()
-        chips.setSpacing(8)
+        chips = FlowLayout(spacing=8)
         self.chips = {}
         for key, text in periods.PRESETS:
             chip = button(text, lambda checked=False, k=key: self.choose(k), name="chip")
             chip.setCheckable(True)
             self.chips[key] = chip
             chips.addWidget(chip)
-        chips.addStretch()
         outer.addLayout(chips)
 
-        row = QHBoxLayout()
-        row.setSpacing(10)
+        row = FlowLayout()
         self.prev = button("‹", lambda: self.step(-1), name="chip")
         self.next = button("›", lambda: self.step(1), name="chip")
         self.prev.setToolTip("önceki gün")
@@ -910,12 +1030,11 @@ class FilterBar(QWidget):
         self.caption = label("", "subtitle")
         self.caption.setWordWrap(False)
         row.addWidget(self.caption)
-        row.addStretch()
         self.employee = QComboBox()
         self.employee.addItem("Tüm personel", None)
         for e in service.employees(token):
             self.employee.addItem(f"{e['name']} · No {e['id']}", e["id"])
-        row.addWidget(self.employee)
+        row.addWidget(self.employee, right=True)
         self.review = QCheckBox("inceleme bekleyenler") if review_toggle else None
         if self.review:
             row.addWidget(self.review)
@@ -1122,11 +1241,9 @@ class AdminDialog(QDialog):
         return layout
 
     def toolbar(self, layout, actions):
-        row = QHBoxLayout()
-        row.setSpacing(10)
+        row = FlowLayout()
         for title, callback in actions:
             row.addWidget(button(title, callback))
-        row.addStretch()
         layout.addLayout(row)
 
     # --- pages ---------------------------------------------------------------
@@ -1137,15 +1254,12 @@ class AdminDialog(QDialog):
         self.health_note = label("", "warning")
         self.health_note.hide()
         box.addWidget(self.health_note)
-        tiles = QHBoxLayout()
-        tiles.setSpacing(12)
         self.tile_inside = StatTile("şu an içeride")
         self.tile_hours = StatTile("bugünkü toplam")
         self.tile_month = StatTile("bu ay ön hak ediş")
         self.tile_review = StatTile("inceleme bekleyen")
-        for tile in (self.tile_inside, self.tile_hours, self.tile_month, self.tile_review):
-            tiles.addWidget(tile, 1)
-        box.addLayout(tiles)
+        self.tile_grid = TileGrid([self.tile_inside, self.tile_hours, self.tile_month, self.tile_review])
+        box.addWidget(self.tile_grid)
         frame, inner = panel("vardiya çizelgesi")
         self.timeline = TimelineWidget()
         inner.addWidget(self.timeline)
@@ -1520,6 +1634,7 @@ class AdminDialog(QDialog):
             self.parent().restoring = True
             self.parent().timer.stop()
             self.parent().clock_timer.stop()
+            self.parent().maintenance.wait()     # its read connection would block the file swap
         self.service.db.close()
         try:
             archive = restore_database(Path(path), db_path, dialog.result_value)
@@ -1628,7 +1743,8 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.service = service
         self.restoring = False
-        self.verified_backups = set()
+        self.maintenance = Maintenance(service.db.path)
+        self.backup_failed = False
         self.card_signature = None
         self.columns = 0
         self.today_seconds = {}
@@ -1741,6 +1857,7 @@ class MainWindow(QMainWindow):
         for timer in (getattr(self, "timer", None), getattr(self, "clock_timer", None)):
             if timer is not None:
                 timer.stop()
+        self.maintenance.wait()
         super().closeEvent(event)
 
     def update_clock(self):
@@ -1839,13 +1956,14 @@ class MainWindow(QMainWindow):
         if alert:
             # Staff keep working; records are flagged for the admin.
             lines.append(alert + " Giriş/çıkışlar yönetici incelemesi için işaretleniyor.")
-        try:
-            automatic_backup(self.service.db, self.service.zone, self.verified_backups)
-            backup_failed = False
-        except (AppError, sqlite3.Error, OSError):
-            backup_failed = True
-        if self.service.health.integrity_due():
-            self.service.health.check_integrity()
+        # Daily backup and integrity check run in the background; results arrive on a later beat.
+        done = self.maintenance.poll()
+        if done:
+            self.backup_failed = done["backup_failed"]
+            if done["integrity"] is not None:
+                self.service.health.record_integrity(done["integrity"])
+        elif not self.maintenance.running:
+            self.maintenance.start(self.service.zone, self.service.health.integrity_due())
         # Anything only the admin can fix is a short count; details live in the admin panel.
         # Forgotten exits and open records older than 24 h, each person counted once.
         stuck = sum(1 for e in people if e["session_id"] and (self.service.past_day_boundary(e["start_at"])
@@ -1853,7 +1971,7 @@ class MainWindow(QMainWindow):
         notes = stuck + bool(notice and not alert) + len(self.service.admin_notes())
         if notes:
             lines.append(f"Yönetici için {notes} not var.")
-        if backup_failed:
+        if self.backup_failed:
             lines.append("Otomatik yedek alınamadı. Yönetici yedekleri kontrol etmeli.")
         message = "\n".join(lines)
         self.warning.setText(message)

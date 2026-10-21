@@ -564,8 +564,10 @@ def test_health_problems_reach_kiosk_count_and_admin_page(qapp, system, monkeypa
     s, c, token, _ = system
     window = MainWindow(s)
     window.show()
-    window.heartbeat()                       # takes today's automatic backup first
-    assert not window.warning.isVisible()
+    window.heartbeat()                       # starts today's automatic backup in the background
+    window.maintenance.wait()
+    window.heartbeat()                       # picks up its result
+    assert not window.warning.isVisible() and list((s.db.path.parent / "backups").glob("otomatik-*"))
     monkeypatch.setattr(s.health, "problems", lambda: ["Diskte yalnızca 100 MB boş yer kaldı; yedekler alınamayabilir."])
     window.heartbeat()
     assert window.warning.text() == "Yönetici için 1 not var."
@@ -690,4 +692,55 @@ def test_payment_receipt_saves_a_pdf(qapp, system, monkeypatch, tmp_path):
     pdf = tmp_path / "makbuz.pdf"
     assert pdf.read_bytes()[:5] == b"%PDF-" and pdf.stat().st_size > 1000
     assert "bin iki yüz elli Türk lirası" in opened[0].html
+    panel.reject()
+
+
+def test_heartbeat_does_backup_and_integrity_off_the_ui_thread(qapp, system, monkeypatch):
+    import threading
+    from vardiya import background
+    s, c, token, _ = system
+    threads = []
+    real = background.inspect_database
+    monkeypatch.setattr(background, "inspect_database",
+                        lambda path: threads.append(threading.current_thread()) or real(path))
+    s.health.integrity_at -= 2 * 86400                # daily check is due
+    window = MainWindow(s)
+    window.heartbeat()
+    window.maintenance.wait()
+    window.heartbeat()
+    assert threads and threads[0] is not threading.main_thread()
+    assert not s.health.integrity_due() and s.health.integrity_errors == []
+    monkeypatch.setattr(background, "automatic_backup",
+                        lambda *a: (_ for _ in ()).throw(OSError("disk dolu")))
+    window.heartbeat()
+    window.maintenance.wait()
+    window.heartbeat()
+    assert "Otomatik yedek alınamadı" in window.warning.text()
+    window.close()
+
+
+def test_admin_pages_fit_a_1024_px_laptop_without_sideways_scrolling(qapp, system):
+    from PySide6.QtWidgets import QScrollArea
+    s, c, token, _ = system
+    panel = AdminDialog(s, token)
+    for width in (1024, 1366):
+        panel.resize(width, 700)
+        panel.show()
+        for index in range(panel.nav.count()):
+            panel.nav.setCurrentRow(index)
+            qapp.processEvents()
+            page = panel.pages.currentWidget()
+            areas = ([page] if isinstance(page, QScrollArea) else []) + page.findChildren(QScrollArea)
+            assert all(a.horizontalScrollBar().maximum() == 0 for a in areas if a.widget() is not None), \
+                (width, panel.nav.item(index).text())
+        panel.nav.setCurrentRow(0)
+        qapp.processEvents()
+        grid = panel.tile_grid
+        assert grid.columns == (4 if grid.width() >= grid.one_row_width() else 2)
+    for tile, text in zip(panel.tile_grid.tiles, ("12", "132 sa 25 dk", "131.650,00 TL", "14")):
+        tile.set_value(text)
+    panel.resize(1024, 700)
+    panel.resize(1023, 700)
+    qapp.processEvents()
+    assert panel.tile_grid.columns == 2 and panel.pages.currentWidget().horizontalScrollBar().maximum() == 0
     panel.reject()

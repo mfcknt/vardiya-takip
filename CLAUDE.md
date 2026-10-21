@@ -12,6 +12,7 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
 | `vardiya/reports.py` | Business-day split, exact money (Fraction → kuruş), CSV/XLSX export |
 | `vardiya/backup.py` | Verified backups, retention, restore |
 | `vardiya/receipts.py` | Qt-free payment receipt HTML, amount in Turkish words |
+| `vardiya/background.py` | Daily backup + integrity check in a worker thread (own read-only connection) |
 | `vardiya/health.py` | Qt-free health checks: integrity (daily), disk space, backup age |
 | `vardiya/security.py` | 4-digit codes (`PIN_LENGTH`), weak-code rules, PBKDF2 |
 | `vardiya/theme.py` | Qt-free: colour tokens (dark/night/light), Turkish casing, stylesheet |
@@ -42,7 +43,8 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
   start from audited closing balances (`meta.closed_period`).
 - Staff self-view (PIN → "kayıtlarım"): own month's days/hours/records only, never money; closes after 30 s.
 - Payment receipt: PDF save + print, signature lines, amount in words; none for voided payments.
-- Must fit small laptop screens (use `fit_to_screen`, scrollable admin pages).
+- Must fit small laptop screens (use `fit_to_screen`, scrollable admin pages; button rows and filters use
+  `FlowLayout`, stat tiles `TileGrid`; a test keeps 1024 px free of sideways scrolling).
 
 ## Working rules
 
@@ -64,5 +66,4 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
 ## Open items discussed but not done
 
 Off-machine backup (USB reminder/copy),
-compressed backups, background
-heavy work, code signing.
+compressed backups, code signing.

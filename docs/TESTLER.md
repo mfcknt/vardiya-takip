@@ -49,6 +49,7 @@ python -m pytest -q
 | Kapalı dönem | Yalnızca biten ve kaydı olan ay; açık/incelemeli kayıt varken reddedilir; kapalı ayda ekleme, düzeltme, iptal, ödeme engeli; 05:00 sınırını aşan kayıt; kapanış bakiyesiyle rapor = tam hesap; tek tek yeniden açma; iş günü saati değişince yeniden hesap; meta oynanırsa bütünlük hatası |
 | Personel kendi ayı | PIN ister ve kilide sayılır; yalnız kendi kayıtları, iptaller hariç, açık kayıt dahil; tutar yok; kayıt oluşturmaz |
 | Makbuz | Tutar yazıyla (bin/yüz kuralları, kuruş), metin kaçışlı, iptal edilmiş ödemeye makbuz yok, PDF üretimi |
+| Arka plan ve küçük ekran | Günlük yedek ve bütünlük denetimi arayüz dışında, hatası kioskta görünür; 1024 px’te hiçbir yönetici sayfası yana kaymaz, düğme satırları ve filtre alt satıra geçer, kutucuklar 2×2 olur |
 | Qt arayüzü | PIN düğmeleri, giriş/çıkış, iptal, yanlış PIN, arama, yönetici sekmeleri ve kapanma |
 | Performans | 3 yıl × 30 personel veride çakışma denetimi < 0,5 sn; günlük yedek süreç başına bir kez doğrulanır |
 | Çakışma algoritması | Yeni sıralı tarama, eski self-join ile 400 rastgele veri kümesinde ve kenar durumlarında aynı sonucu verir |

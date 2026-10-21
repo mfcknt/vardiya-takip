@@ -73,6 +73,10 @@ altında boş disk, hiç yedek olmaması veya son yedeğin 3 günden eski olmas�
 program açık kaldıkça günde bir kez yinelenir. Sorunlar yönetici “bugün” sayfasının üstünde yazılır;
 kioskta yalnızca “Yönetici için N not var.” sayısına eklenir. Dosya yaşları için gerçek saat kullanılır.
 
+Günlük otomatik yedek ve günlük bütünlük denetimi kioskun arayüz iş parçacığında değil, `background.py`’deki
+tek işçili arka plan işinde çalışır. İş kendi salt okunur SQLite bağlantısını açar; sonuç bir sonraki
+15 saniyelik turda alınır. Yedekten kurtarma ve kapanışta iş önce bitirilir (Windows açık dosyayı değiştiremez).
+
 ## İş günü
 
 `meta.day_start_hour` (varsayılan 5) iş gününün yerel başlangıç saatidir. Rapor gün/ay sınırları,

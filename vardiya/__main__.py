@@ -124,6 +124,7 @@ def main():
         window = MainWindow(service)
         window.showMaximized()      # the kiosk fills the screen on any resolution
         result = app.exec()
+        window.maintenance.shutdown()
         if not window.restoring:
             try:
                 closing_backup(db)
