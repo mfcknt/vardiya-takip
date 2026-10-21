@@ -24,6 +24,8 @@ Python 3.12, PySide6 (Qt), SQLite, openpyxl. All user-facing text is **Turkish**
 
 ## Decisions already made with the owner (do not undo without asking)
 
+(The owner-facing version with reasons is `docs/KARARLAR.md`; keep both in sync.)
+
 - Staff PIN **and** admin code are 4 digits. Weak codes (1111, 1234/4321, 1212, 1122) rejected.
   Duplicate codes are allowed on purpose: rejecting "same as admin/other staff" would leak that code.
   Never reveal anything about other people's codes in any message.

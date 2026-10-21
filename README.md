@@ -195,4 +195,4 @@ python -m vardiya --data-dir ./deneme-verisi --restore ./yedek.sqlite3
 Komut satırında şifre argümanı kullanılmaz; kurtarma şifreyi gizli girişle sorar.
 Kurtarma için diğer uygulama örneğini kapatın.
 
-Mimari ve test ayrıntıları: [TEKNIK.md](docs/TEKNIK.md) · [TESTLER.md](docs/TESTLER.md).
+Mimari ve test ayrıntıları: [TEKNIK.md](docs/TEKNIK.md) · [TESTLER.md](docs/TESTLER.md) · kararlar ve nedenleri: [KARARLAR.md](docs/KARARLAR.md).
