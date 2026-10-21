@@ -1,7 +1,8 @@
 import time
 import uuid
+from datetime import date
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QDate, Qt
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QDialog, QLabel
 
@@ -169,7 +170,7 @@ def test_admin_shows_turkish_money_actions_and_filters(qapp, system):
     panel = AdminDialog(s, token)
     assert panel.people_table.item(0, 2).text() == "150,00"
     assert not panel.people_table.item(0, 1).icon().isNull()
-    assert panel.session_table.rowCount() == 1  # default: last 30 days
+    assert panel.session_table.rowCount() == 1  # default: this month
     assert panel.audit_table.item(0, 3).text() == "Kayıt eklendi"
     assert "MB" in panel.backup_note.text()
     assert panel.tile_hours.value.text() == "1 saat"
@@ -200,7 +201,7 @@ def test_forgotten_exit_ring_pin_warning_and_report(qapp, system):
     assert dialog.result() == QDialog.DialogCode.Accepted
     token = s.login_admin(PASSWORD)
     panel = AdminDialog(s, token)
-    assert panel.last.date().toPython().isoformat() == "2026-10-21"
+    assert panel.report_filter.range[1].isoformat() == "2026-10-21"
     assert any(panel.session_table.item(r, 0).text() == str(sid) and panel.session_table.item(r, 6).text()
                for r in range(panel.session_table.rowCount()))
     assert "05:00" in panel.day_note.text()
@@ -213,8 +214,9 @@ def test_report_today_uses_business_day(qapp, system):
     c.advance(ts("2026-10-21T00:30") - c.now)
     token = s.login_admin(PASSWORD)
     panel = AdminDialog(s, token)
-    panel.today()
-    assert panel.first.date().toPython().isoformat() == "2026-10-20"
+    panel.report_filter.chips["today"].click()
+    assert panel.report_filter.range[0].isoformat() == "2026-10-20"
+    assert panel.report["first"] == panel.report["last"] == "2026-10-20"
     assert panel.report_table.columnCount() == 8
     assert "salı" in panel.today_subtitle.text()
     panel.reject()
@@ -395,16 +397,87 @@ def test_day_by_day_navigation(qapp, system):
     s, _, token, _ = system
     panel = AdminDialog(s, token)
     bar = panel.session_filter
-    from vardiya.ui import step_days
-    step_days(bar.first, bar.last, -1, panel.refresh)
-    assert bar.first.date() == bar.last.date()
-    assert bar.last.date().toPython().isoformat() == "2026-10-19"
-    step_days(bar.first, bar.last, 1, panel.refresh)
-    assert bar.last.date().toPython().isoformat() == "2026-10-20"
-    step_days(panel.first, panel.last, -1, panel.calculate)
+    assert bar.preset == "this_month" and bar.chips["this_month"].isChecked()
+    assert bar.caption.text() == "ekim 2026 · 20 gün"
+    assert not bar.next.isEnabled()                     # nothing after today
+    bar.prev.click()                                    # this month → yesterday, not last month
+    assert bar.range == (date(2026, 10, 19),) * 2 and bar.chips["yesterday"].isChecked()
+    bar.prev.click()                                    # the day before: no chip is lit
+    assert bar.range == (date(2026, 10, 18),) * 2
+    assert not any(chip.isChecked() for chip in bar.chips.values())
+    assert bar.apply_button.isHidden()
+    bar.next.click()
+    bar.next.click()
+    assert bar.range == (date(2026, 10, 20),) * 2 and bar.chips["today"].isChecked()
+    bar.prev.click()
+    # The period is shared: the earnings and payments pages follow.
     assert panel.report["first"] == panel.report["last"] == "2026-10-19"
-    bar.last_30(panel.refresh)
-    assert bar.first.date().daysTo(bar.last.date()) == 29
+    assert panel.payment_filter.range == bar.range and panel.payment_filter.chips["yesterday"].isChecked()
+    panel.report_filter.chips["last_month"].click()
+    assert bar.range == (date(2026, 9, 1), date(2026, 9, 30))
+    assert panel.report["first"] == "2026-09-01" and panel.report["last"] == "2026-09-30"
+    panel.reject()
+
+
+def test_custom_range_waits_for_filter_button(qapp, system):
+    s, c, token, eid = system
+    s.manual_session(token, eid, c.now - 10 * 86400, c.now - 10 * 86400 + 3600, 15000,
+                     "Eski kayıt eklendi", str(uuid.uuid4()))
+    panel = AdminDialog(s, token)
+    panel.show()
+    bar = panel.session_filter
+    assert panel.session_table.rowCount() == 1
+    bar.chips["custom"].click()
+    assert bar.chips["custom"].isChecked() and not bar.apply_button.isHidden()
+    bar.first.setDate(QDate(2026, 10, 12))
+    bar.last.setDate(QDate(2026, 10, 15))
+    QTest.qWait(400)
+    assert panel.session_table.rowCount() == 1            # typed dates alone change nothing
+    assert bar.range == (date(2026, 10, 1), date(2026, 10, 20))
+    assert bar.caption.isHidden()                         # the old caption would be wrong now
+    panel.refresh()                                       # nor does an unrelated refresh
+    assert panel.session_table.rowCount() == 1
+    bar.apply_button.click()
+    assert bar.range == (date(2026, 10, 12), date(2026, 10, 15)) and bar.caption.text() == "4 gün"
+    assert not bar.caption.isHidden()
+    assert panel.session_table.rowCount() == 0
+    assert panel.report["first"] == "2026-10-12" and panel.payment_filter.range == bar.range
+    bar.first.setDate(QDate(2026, 10, 18))                # start past the end: the end follows
+    assert bar.last.date() == QDate(2026, 10, 18)
+    bar.last.setDate(QDate(2026, 10, 5))                  # end before the start: the start follows
+    assert bar.first.date() == QDate(2026, 10, 5)
+    assert bar.last.maximumDate() == QDate(2026, 10, 20)  # no future dates
+    bar.apply_button.click()
+    assert panel.session_table.rowCount() == 0
+    bar.first.setDate(QDate(2026, 10, 10))
+    bar.last.setDate(QDate(2026, 10, 10))
+    bar.apply_button.click()
+    assert panel.session_table.rowCount() == 1
+    panel.reject()
+
+
+def test_report_filters_by_employee_and_export_uses_applied_period(qapp, system, tmp_path, monkeypatch):
+    from openpyxl import load_workbook
+    from PySide6.QtWidgets import QFileDialog, QMessageBox
+    s, c, token, eid = system
+    other = s.add_employee(token, "Can Arslan", "5738", 12000)
+    s.manual_session(token, other, c.now - 3600, c.now, 12000, "Kayıt eklendi", str(uuid.uuid4()))
+    panel = AdminDialog(s, token)
+    panel.show()
+    bar = panel.report_filter
+    assert panel.report_table.rowCount() == 2
+    bar.employee.setCurrentIndex(bar.employee.findData(other))
+    QTest.qWait(400)
+    assert panel.report_table.rowCount() == 1 and panel.report_table.item(0, 0).text() == "Can Arslan"
+    bar.first.setDate(QDate(2026, 9, 1))                  # typed, not applied
+    target = tmp_path / "rapor.xlsx"
+    monkeypatch.setattr(QFileDialog, "getSaveFileName", lambda *a, **k: (str(target), ""))
+    monkeypatch.setattr(QMessageBox, "information", lambda *a, **k: None)
+    panel.export(".xlsx")
+    sheet = load_workbook(target)["Özet"]
+    assert [row[1] for row in sheet.iter_rows(min_row=2, values_only=True)] == ["Can Arslan"]
+    notes = dict(load_workbook(target)["Açıklama"].iter_rows(min_row=2, values_only=True))
+    assert notes["Dönem"] == "2026-10-01 — 2026-10-20"
     panel.reject()
 
 
@@ -435,13 +508,13 @@ def test_filters_apply_by_themselves(qapp, system):
     panel = AdminDialog(s, token)
     panel.show()                                     # hidden panels never auto-refresh
     assert panel.session_table.rowCount() == 1
-    from vardiya.ui import step_days
-    step_days(panel.session_filter.first, panel.session_filter.last, -1, lambda: None)   # 19 Ekim: boş
+    panel.session_filter.prev.click()                # 19 Ekim: boş, at once
+    assert panel.session_table.rowCount() == 0
+    panel.session_filter.chips["this_month"].click()
+    assert panel.session_table.rowCount() == 1
+    panel.session_filter.review.setChecked(True)     # the checkbox applies after a short debounce
     QTest.qWait(400)
     assert panel.session_table.rowCount() == 0
-    panel.session_filter.last_30(lambda: None)
-    QTest.qWait(400)
-    assert panel.session_table.rowCount() == 1
     panel.reject()
 
 

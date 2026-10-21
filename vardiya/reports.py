@@ -34,7 +34,8 @@ def split_days(start: int, end: int, zone, hour: int = 0):
         start = stop
 
 
-def build_report(service, token, first: date, last: date):
+def build_report(service, token, first: date, last: date, employee_id=None):
+    """Earnings for business days first..last; `employee_id` limits it to one person."""
     service.require_admin(token)
     if last < first or (last - first).days > 365:
         raise AppError("Rapor aralığı 1–366 gün olmalı.")
@@ -49,6 +50,10 @@ def build_report(service, token, first: date, last: date):
             "SELECT * FROM payments WHERE voided=0 AND paid_at<?", (stop,))]
         clock_alert = service.db.meta("clock_alert", "")
         clock_notice = service.db.meta("clock_notice", "")
+    if employee_id is not None:
+        employees = [e for e in employees if e["id"] == employee_id]
+        sessions = [s for s in sessions if s["employee_id"] == employee_id]
+        payments = [p for p in payments if p["employee_id"] == employee_id]
     daily = defaultdict(lambda: {"seconds": 0, "open_seconds": 0,
                                  "amount": Fraction(0), "open_amount": Fraction(0)})
     details = []

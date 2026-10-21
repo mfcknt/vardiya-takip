@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from . import periods
 from . import theme as th
 from .backup import automatic_backup, backup_usage, create_backup, restore_database
 from .formatting import cents, tl
@@ -189,24 +190,6 @@ def fill_table(table, rows, avatars=None, avatar_col=1):
                 letters, state = avatars[y]
                 item.setIcon(QIcon(avatar_pixmap(letters, state, 30, ratio)))
             table.setItem(y, x, item)
-
-
-def step_days(first, last, delta, on_change):
-    """Move a date range to the single day before/after its last day."""
-    day = last.date().addDays(delta)
-    first.setDate(day)
-    last.setDate(day)
-    on_change()
-
-
-def day_buttons(first, last, on_change):
-    prev = button("‹", lambda: step_days(first, last, -1, on_change), name="chip")
-    nxt = button("›", lambda: step_days(first, last, 1, on_change), name="chip")
-    prev.setToolTip("önceki gün")
-    nxt.setToolTip("sonraki gün")
-    for b in (prev, nxt):
-        b.setFixedWidth(44)
-    return prev, nxt
 
 
 def page_header(title, subtitle=""):
@@ -678,25 +661,55 @@ class ReasonDialog(FormDialog):
         self.accept()
 
 
+def qdate(day):
+    return QDate(day.year, day.month, day.day)
+
+
 class FilterBar(QWidget):
-    """Date range + employee filter; default is the last 30 days."""
+    """Period + employee filter shared by sessions, earnings and payments; default is this month.
+
+    Preset chips and the ‹ › day arrows apply at once. Dates typed into the fields form a
+    custom range that waits for "filtrele", so half-entered dates never run a query.
+    `on_apply(bar)` runs after every applied change.
+    """
     def __init__(self, service, token, on_apply, review_toggle=False, parent=None):
         super().__init__(parent)
-        self.service = service
-        row = QHBoxLayout(self)
-        row.setContentsMargins(0, 0, 0, 0)
-        today = service.business_day(service.clock.wall())
-        start = today - timedelta(days=29)
-        self.first = QDateEdit(QDate(start.year, start.month, start.day))
-        self.last = QDateEdit(QDate(today.year, today.month, today.day))
-        prev, nxt = day_buttons(self.first, self.last, on_apply)
-        row.addWidget(prev)
+        self.service, self.on_apply = service, on_apply
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(10)
+        chips = QHBoxLayout()
+        chips.setSpacing(8)
+        self.chips = {}
+        for key, text in periods.PRESETS:
+            chip = button(text, lambda checked=False, k=key: self.choose(k), name="chip")
+            chip.setCheckable(True)
+            self.chips[key] = chip
+            chips.addWidget(chip)
+        chips.addStretch()
+        outer.addLayout(chips)
+
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        self.prev = button("‹", lambda: self.step(-1), name="chip")
+        self.next = button("›", lambda: self.step(1), name="chip")
+        self.prev.setToolTip("önceki gün")
+        self.next.setToolTip("sonraki gün")
+        self.first, self.last = QDateEdit(), QDateEdit()
+        row.addWidget(self.prev)
         for w in (self.first, self.last):
             w.setCalendarPopup(True)
             w.setDisplayFormat("dd.MM.yyyy")
             row.addWidget(w)
-        row.addWidget(nxt)
-        row.addWidget(button("son 30 gün", lambda: self.last_30(on_apply), name="chip"))
+        row.addWidget(self.next)
+        for b in (self.prev, self.next):
+            b.setFixedWidth(44)
+        self.apply_button = button("filtrele", self.apply_custom, True)
+        row.addWidget(self.apply_button)
+        self.caption = label("", "subtitle")
+        self.caption.setWordWrap(False)
+        row.addWidget(self.caption)
+        row.addStretch()
         self.employee = QComboBox()
         self.employee.addItem("Tüm personel", None)
         for e in service.employees(token):
@@ -705,24 +718,78 @@ class FilterBar(QWidget):
         self.review = QCheckBox("inceleme bekleyenler") if review_toggle else None
         if self.review:
             row.addWidget(self.review)
-        row.addStretch()
-        # Filters apply by themselves (short debounce so stepping days stays smooth).
+        outer.addLayout(row)
+        self.first.dateChanged.connect(lambda: self.edited(self.first))
+        self.last.dateChanged.connect(lambda: self.edited(self.last))
+        self.show_range(*periods.preset_range(periods.DEFAULT_PRESET, self.today()), periods.DEFAULT_PRESET)
+        # Employee/review changes apply by themselves (short debounce).
         self._apply = QTimer(self)
         self._apply.setSingleShot(True)
         self._apply.setInterval(200)
-        self._apply.timeout.connect(lambda: on_apply() if self.window().isVisible() else None)
-        for edit in (self.first, self.last):
-            edit.dateChanged.connect(self._apply.start)
+        self._apply.timeout.connect(lambda: self.on_apply(self) if self.window().isVisible() else None)
         self.employee.currentIndexChanged.connect(self._apply.start)
         if self.review:
             self.review.toggled.connect(self._apply.start)
 
-    def last_30(self, on_apply):
-        today = self.service.business_day(self.service.clock.wall())
-        start = today - timedelta(days=29)
-        self.first.setDate(QDate(start.year, start.month, start.day))
-        self.last.setDate(QDate(today.year, today.month, today.day))
-        on_apply()
+    def today(self):
+        return self.service.business_day(self.service.clock.wall())
+
+    def show_range(self, first, last, preset):
+        """Make (first, last) the applied range without running the query."""
+        today = self.today()
+        self.range, self.preset = (first, last), preset
+        for edit, day in ((self.first, first), (self.last, last)):
+            edit.blockSignals(True)
+            edit.setMaximumDate(qdate(today))
+            edit.setDate(qdate(day))
+            edit.blockSignals(False)
+        self.mark(preset)
+        self.next.setEnabled(last < today)
+        self.caption.setText(periods.caption(first, last))
+        self.caption.show()
+
+    def mark(self, preset):
+        for key, chip in self.chips.items():
+            chip.setChecked(key == preset)
+        self.apply_button.setVisible(preset == "custom")
+
+    def follow(self, other):
+        """Take another bar's applied period (the period is shared between pages)."""
+        self.show_range(*other.range, other.preset)
+
+    def changed(self):
+        self._apply.stop()
+        self.on_apply(self)
+
+    def choose(self, key):
+        if key == "custom":
+            self.mark("custom")
+            self.caption.hide()   # until applied; the "filtrele" button says what to do
+            return
+        self.show_range(*periods.preset_range(key, self.today()), key)
+        self.changed()
+
+    def step(self, delta):
+        today = self.today()
+        day = periods.step_day(self.range[1], delta, today)
+        self.show_range(day, day, periods.matching_preset(day, day, today))
+        self.changed()
+
+    def edited(self, which):
+        """A date was typed or picked: keep the range ordered and wait for "filtrele"."""
+        first, last = self.first.date(), self.last.date()
+        if first > last:
+            other = self.last if which is self.first else self.first
+            other.blockSignals(True)
+            other.setDate(which.date())
+            other.blockSignals(False)
+        self.mark("custom")
+        self.caption.hide()
+
+    def apply_custom(self):
+        first, last = self.first.date().toPython(), self.last.date().toPython()
+        self.show_range(first, last, periods.matching_preset(first, last, self.today()) or "custom")
+        self.changed()
 
     def sync_employees(self, rows):
         """Keep the employee list current without losing the selection."""
@@ -742,11 +809,11 @@ class FilterBar(QWidget):
         self.employee.blockSignals(False)
 
     def values(self):
-        first, last = self.first.date().toPython(), self.last.date().toPython()
-        if last < first:
-            raise AppError("Bitiş tarihi başlangıçtan önce olamaz.")
+        """The applied filter; dates still waiting for "filtrele" are not included."""
+        first, last = self.range
         since, until = self.service.day_bounds(first, last)
-        return {"eid": self.employee.currentData(), "since": since, "until": until}
+        return {"eid": self.employee.currentData(), "first": first, "last": last,
+                "since": since, "until": until}
 
     def review_only(self):
         return bool(self.review and self.review.isChecked())
@@ -829,9 +896,8 @@ class AdminDialog(QDialog):
     def done(self, result):
         self.timer.stop()
         # A filter change made just before closing must not refresh a closed panel.
-        for bar in (getattr(self, "session_filter", None), getattr(self, "payment_filter", None)):
-            if bar is not None:
-                bar._apply.stop()
+        for bar in getattr(self, "filters", ()):
+            bar._apply.stop()
         QApplication.instance().removeEventFilter(self)
         self.service.logout(self.token)
         super().done(result)
@@ -895,7 +961,8 @@ class AdminDialog(QDialog):
 
     def sessions_tab(self):
         box = self.tab("giriş / çıkış", "kayıtlar, düzeltmeler ve incelemeler")
-        self.session_filter = FilterBar(self.service, self.token, self.refresh, review_toggle=True)
+        self.session_filter = FilterBar(self.service, self.token, self.filters_changed, review_toggle=True)
+        self.filters = [self.session_filter]
         box.addWidget(self.session_filter)
         self.review_note = label("", "warning")
         self.review_note.hide()
@@ -907,24 +974,9 @@ class AdminDialog(QDialog):
 
     def reports_tab(self):
         box = self.tab("hak ediş", "ön hak ediş · resmî bordro değildir")
-        dates = QHBoxLayout()
-        dates.setSpacing(10)
-        today = self.service.business_day(self.service.clock.wall())
-        self.first = QDateEdit(QDate(today.year, today.month, 1))
-        self.last = QDateEdit(QDate(today.year, today.month, today.day))
-        for w in (self.first, self.last):
-            w.setCalendarPopup(True)
-            w.setDisplayFormat("dd.MM.yyyy")
-        prev, nxt = day_buttons(self.first, self.last, self.calculate)
-        dates.addWidget(prev)
-        dates.addWidget(self.first)
-        dates.addWidget(self.last)
-        dates.addWidget(nxt)
-        dates.addWidget(button("bugün", self.today, name="chip"))
-        dates.addWidget(button("bu ay", self.this_month, name="chip"))
-        dates.addStretch()
-        dates.addWidget(button("hesapla", self.calculate, True))
-        box.addLayout(dates)
+        self.report_filter = FilterBar(self.service, self.token, self.filters_changed)
+        self.filters.append(self.report_filter)
+        box.addWidget(self.report_filter)
         self.report_note = label("Açık kayıtlar geçici tahmindir ve bakiyeye eklenmez.", "warning")
         box.addWidget(self.report_note)
         self.report_table = make_table(["Personel", "Kapalı süre", "Ön hak ediş TL", "Açık tahmini TL",
@@ -936,7 +988,8 @@ class AdminDialog(QDialog):
 
     def payments_tab(self):
         box = self.tab("ödemeler", "ödeme ve avanslar")
-        self.payment_filter = FilterBar(self.service, self.token, self.refresh)
+        self.payment_filter = FilterBar(self.service, self.token, self.filters_changed)
+        self.filters.append(self.payment_filter)
         box.addWidget(self.payment_filter)
         self.toolbar(box, [("Ödeme / avans ekle", self.add_payment), ("Seçileni iptal et", self.void_payment)])
         self.payment_table = make_table(["Kayıt", "Personel", "Tarih", "Tür", "Tutar TL", "Açıklama", "Durum"])
@@ -993,7 +1046,7 @@ class AdminDialog(QDialog):
     @guarded
     def refresh(self):
         self.people = self.service.employees(self.token)
-        for bar in (self.session_filter, self.payment_filter):
+        for bar in self.filters:
             bar.sync_employees(self.people)
         fill_table(self.people_table, [[e["id"], e["name"], tl(e["rate_cents"]),
                                        " · ".join(x for x in ("Aktif" if e["active"] else "Arşiv",
@@ -1156,23 +1209,20 @@ class AdminDialog(QDialog):
                         lambda reason: self.service.void_payment(self.token, row["id"], reason), self).exec():
             self.refresh()
 
-    def today(self):
-        day = self.service.business_day(self.service.clock.wall())
-        q = QDate(day.year, day.month, day.day)
-        self.first.setDate(q)
-        self.last.setDate(q)
-        self.calculate()
+    def filters_changed(self, source):
+        """The period is shared: every page follows the bar that changed, then all refresh."""
+        for bar in self.filters:
+            if bar is not source:
+                bar.follow(source)
+        self.refresh()
 
-    def this_month(self):
-        day = self.service.business_day(self.service.clock.wall())
-        self.first.setDate(QDate(day.year, day.month, 1))
-        self.last.setDate(QDate(day.year, day.month, day.day))
-        self.calculate()
+    def build_report(self):
+        f = self.report_filter.values()
+        return build_report(self.service, self.token, f["first"], f["last"], f["eid"])
 
     @guarded
     def calculate(self):
-        self.report = build_report(self.service, self.token, self.first.date().toPython(),
-                                   self.last.date().toPython())
+        self.report = self.build_report()
         fill_table(self.report_table, [[r["name"], duration(r["seconds"]), tl(r["cents"]),
                                        tl(r["open_cents"]), tl(r["paid_cents"]),
                                        tl(r["carry_cents"]), tl(r["balance_cents"]),
@@ -1187,8 +1237,7 @@ class AdminDialog(QDialog):
 
     @guarded
     def export(self, suffix):
-        report = build_report(self.service, self.token, self.first.date().toPython(),
-                              self.last.date().toPython())
+        report = self.build_report()   # the applied filter: the period shown on screen
         path, _ = QFileDialog.getSaveFileName(self, "Rapor kaydet",
                                               f"on-hak-edis-{report['first']}{suffix}",
                                               "Excel (*.xlsx)" if suffix == ".xlsx" else "CSV (*.csv)")

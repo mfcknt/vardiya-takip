@@ -48,7 +48,7 @@ python -m pytest -q
 | Saat incelemesi | Uyarıda giriş/çıkış sürer ve işaretlenir; düzeltme işareti kaldırır; uzun ara yalnızca bildirim |
 | Kademeli kilit | 30 sn → 5 dk; doğru PIN sayacı sıfırlar; yönetici gerekçeyle kilidi kaldırır; ana ekranda görünür |
 | Yedek saklama | Son 30 gün + ay başları + son 20 kapanış; elle alınan ve diğer dosyalara dokunulmaz |
-| Filtreler | Kayıt/ödeme tarih ve personel filtresi, son 1000 işlem, yeni personel filtre listesine eklenir |
+| Filtreler | Hazır dönemler (ay/yıl/hafta sınırları), ‹ › gün gün ve bugünden ileri gitmez, özel aralık yalnızca “filtrele” ile uygulanır, dönem sayfalar arasında ortak, hak edişte personel filtresi, dışa aktarma ekrandaki dönemi kullanır, son 1000 işlem, yeni personel filtre listesine eklenir |
 | TL biçimi | 1.500,50 / 1500.50 / 1.500 girişleri; 1.440,00 gösterimi; hatalı tutar reddi |
 | Konsol kodlaması | Bakım aracı cp1252 yönlendirilmiş çıktıda Türkçe metinle çökmez |
 | İş günü | 05:00 sınırı: gece 00:30 yarım saati önceki güne, 17–01 vardiyası tek güne; ay sonu; ayar ve denetim |

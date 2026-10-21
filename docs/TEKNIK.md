@@ -60,7 +60,9 @@ mevcut kayıt saatlerini ve inceleme işaretlerini değiştirmez.
 ## İş günü
 
 `meta.day_start_hour` (varsayılan 5) iş gününün yerel başlangıç saatidir. Rapor gün/ay sınırları,
-“Bugün/Bu ay” düğmeleri ve tablo filtreleri bu sınırı kullanır (`reports.business_day`, `Service.day_bounds`).
+hazır dönemler (bugün, dün, bu/geçen hafta, bu/geçen ay) ve tablo filtreleri bu sınırı kullanır
+(`reports.business_day`, `Service.day_bounds`, `periods.preset_range`). Dönem üç sayfada ortaktır; ‹ › bir gün kaydırır,
+elle girilen özel aralık “filtrele” ile uygulanır.
 Her `tick()` (15 sn ve her personel işlemi) açık kayıtları tarar; iş günü sınırını geçmiş ve işaretsiz olanlara
 `review` notu yazar, revision’ı artırır ve `SESSION_FLAG` audit kaydı ekler (eski düzeltme ekranı üzerine yazamaz).
 Ayar değişikliği `SETTING_CHANGE` olarak denetlenir.

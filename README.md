@@ -58,7 +58,8 @@ Her `main` gönderiminde GitHub Actions Windows üzerinde tüm testleri çalış
 - CSV özet, çok sayfalı Excel raporu ve işlem geçmişi CSV çıktısı.
 - Bütünlük ve işlem zinciri denetimi, doğrulanan yedek, yedekten kurtarma.
 - Saat geri alma/ileri sıçrama şüphesinde kayıtlar durmaz, yönetici incelemesine işaretlenir; uzun açık kayıt uyarısı.
-- Yönetici tablolarında tarih/personel filtresi; tutarlar Türkçe biçimde (1.440,00).
+- Yönetici tablolarında ortak dönem filtresi (bugün, dün, bu/geçen hafta, bu/geçen ay, özel aralık; ‹ › gün gün)
+  ve personel filtresi; tutarlar Türkçe biçimde (1.440,00).
 
 ## Hesaplama kuralları
 
