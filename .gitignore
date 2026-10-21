@@ -11,3 +11,6 @@ application.lock
 .DS_Store
 
 screenshots/
+crash-report.txt
+test-progress.txt
+hang-report.txt

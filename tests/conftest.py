@@ -49,6 +49,19 @@ def system(tmp_path):
 MODAL_SEEN = []
 HANG_SECONDS = 90
 
+# Native crashes (inside Qt) kill the process before pytest can write its report.
+# Keep a crash dump and the name of the running test on disk so CI can show them.
+import faulthandler as _faulthandler
+_CRASH_FILE = open(os.environ.get("VARDIYA_CRASH_REPORT", "crash-report.txt"), "w", encoding="utf-8")
+_faulthandler.enable(file=_CRASH_FILE, all_threads=True)
+
+
+@pytest.fixture(autouse=True)
+def progress_marker(request):
+    with open("test-progress.txt", "w", encoding="utf-8") as f:
+        f.write(request.node.nodeid)
+    yield
+
 
 @pytest.fixture(autouse=True)
 def hang_watchdog(request):

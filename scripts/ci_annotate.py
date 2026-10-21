@@ -22,6 +22,10 @@ def main(path):
     if hang.exists():
         print(f"::error title=Takılan test::{escape(hang.read_text(encoding='utf-8', errors='replace')[-3500:])}")
     report = Path(path)
+    crash, progress = Path("crash-report.txt"), Path("test-progress.txt")
+    if not report.exists() and progress.exists():
+        dump = crash.read_text(encoding="utf-8", errors="replace") if crash.exists() else ""
+        print(f"::error title=Çöken test::{escape(progress.read_text(encoding='utf-8') + chr(10) + dump[-3500:])}")
     if not report.exists():
         print("::error title=pytest::Test raporu üretilmedi (kurulum veya toplama hatası).")
         return 1
